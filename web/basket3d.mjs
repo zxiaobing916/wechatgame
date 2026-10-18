@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { BASKET_ITEMS, availableItems as legacyAvailable } from '/domain/basket.mjs';
 
 /** Original procedural toy props. A shallow open basket keeps every top piece accessible. */
-export function createBasketView({canvas,onPick=()=>{}}={}) {
+export function createBasketView({canvas,onPick=()=>{},onPrize=()=>{}}={}) {
   if(!canvas)throw new Error('Basket canvas required');
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio||1,1.5));
@@ -22,15 +22,15 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   function part(parent,g,m,x,y,z,sx,sy,sz){const o=new THREE.Mesh(g,m);o.castShadow=true;o.receiveShadow=true;o.position.set(x,y,z);o.scale.set(sx,sy,sz);parent.add(o);return o;}
   const contents=new THREE.Group();scene.add(contents);
   const basket=new THREE.Group();contents.add(basket);
-  part(basket,cube,M.wood,0,-.16,0,5.9,.18,7.4);
-  for(let i=0;i<19;i++)part(basket,cube,M.weave,-2.79+i*.31,-.055,0,.065,.035,7.2);
-  for(let i=0;i<24;i++)part(basket,cube,M.weave,0,-.03,-3.55+i*.31,5.7,.035,.065);
-  for(const z of [-3.68,3.68]){part(basket,cube,M.wood,0,.10,z,6,.3,.13);part(basket,cube,M.weave,0,.27,z,6,.09,.18);}
-  for(const x of [-2.94,2.94]){part(basket,cube,M.wood,x,.10,0,.13,.3,7.4);part(basket,cube,M.weave,x,.27,0,.18,.09,7.45);}
+  part(basket,cube,M.wood,0,-6.15,0,5.9,.18,7.4);
+  for(let i=0;i<19;i++)part(basket,cube,M.weave,-2.79+i*.31,-6.04,0,.065,.035,7.2);
+  for(let i=0;i<24;i++)part(basket,cube,M.weave,0,-6.02,-3.55+i*.31,5.7,.035,.065);
+  for(const z of [-3.68,3.68]){part(basket,cube,M.wood,0,-2.9,z,6,6.3,.13);part(basket,cube,M.weave,0,.27,z,6,.09,.18);}
+  for(const x of [-2.94,2.94]){part(basket,cube,M.wood,x,-2.9,0,.13,6.3,7.4);part(basket,cube,M.weave,x,.27,0,.18,.09,7.45);}
   for(const x of [-3.03,3.03]){const h=part(basket,torus,M.wood,x,.25,0,.35,.52,.35);h.rotation.y=Math.PI/2;}
   // A separate, non-pickable keepsake rests in the gap between the authored stacks.
   // Its cover opens with puzzle progress; neither reward nor cloth changes the puzzle.
-  const keepsake=new THREE.Group();keepsake.position.set(0,.025,.63);keepsake.scale.setScalar(.72);contents.add(keepsake);
+  const keepsake=new THREE.Group();keepsake.position.set(0,-5.98,.63);keepsake.scale.setScalar(.72);contents.add(keepsake);
   const velvet=material('#c9b7dc'),face=material('#f8e8d5'),ink=material('#60596c'),gold=material('#ddb974');
   part(keepsake,ball,velvet,0,.025,0,.72,.055,.49);
   const lamb=new THREE.Group();keepsake.add(lamb);
@@ -52,10 +52,8 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   let revealProgress=0,prizeAwake=false;
   function updatePrize(count,status){
     if(prizeAwake&&status!=='won'){camera.zoom=1;camera.updateProjectionMatrix();keepsake.scale.setScalar(.72);}
-    revealProgress=Math.max(0,Math.min(1,1-count/entries.length));prizeAwake=status==='won';
-    // A wrapped lump initially; an ear and wool peek out halfway through.
-    const opening=Math.max(0,(revealProgress-.2)/.8);
-    for(const {cloth,side}of covers){cloth.visible=!prizeAwake;cloth.position.x=side*(.25+opening*.17);cloth.position.z=-opening*.2;cloth.scale.set(.48*(1-opening*.8),.32*(1-opening*.92),.47*(1-opening*.2));cloth.position.y=.29*(1-opening*.85);}
+    revealProgress=count===0?1:0;prizeAwake=status==='won';keepsake.visible=count===0;
+    for(const {cloth}of covers)cloth.visible=false;
     for(const eye of eyes)eye.scale.y=prizeAwake?.029:.008;
   }
   function model(type){
@@ -95,6 +93,7 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     }
     return p;
   }
+  keepsake.traverse(o=>{if(o.isMesh)o.userData.prize=true;});
   const icons={};
   const iconScene=new THREE.Scene();iconScene.background=new THREE.Color('#fffdf5');
   iconScene.add(new THREE.HemisphereLight('#fff9ef','#b5bca6',1.7));
@@ -113,6 +112,11 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     const ring=part(root,torus,M.white,0,.015,0,.43,.43,.43);ring.rotation.x=Math.PI/2;
     const scattered=Number.isFinite(item.pitch);
     if(scattered){root.position.set(item.x,item.y,item.z);shape.position.y=-heights[item.type]*.5*item.size;shape.scale.setScalar(item.size);root.rotation.set(item.pitch,item.yaw,item.roll);ring.visible=false;}else root.rotation.y=(index%5-2)*.16;
+    if(item.size===2.15){
+      root.rotation.set(0,0,0);shape.position.set(0,0,0);shape.scale.setScalar(1);shape.rotation.set(item.pitch,item.yaw,item.roll);
+      const box=new THREE.Box3().setFromObject(shape),center=box.getCenter(new THREE.Vector3()),extent=box.getSize(new THREE.Vector3());
+      shape.position.sub(center);const spread=1.90/Math.max(extent.x,extent.z);root.scale.set(spread,Math.min(spread,1.02/extent.y),spread);
+    }
     ring.name='selection-ring';
     root.traverse(o=>{if(o.isMesh)o.userData.itemId=item.id;});contents.add(root);
     records.set(item.id,{item,root,shape,ring,daily,scattered,targetY:item.y,velocity:0});
@@ -121,23 +125,21 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   rebuild(BASKET_ITEMS);
   let state=null,available=new Set(),active=false,disposed=false,angle=0,drag=null,frame=0,rockRemaining=0,lastFrame=0;let tiltX=0,tiltZ=0;const pointers=new Set();
   function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);const aspect=r.width/r.height;const half=aspect<1?3.85/aspect:3.85;camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
-  function positionCamera(){camera.position.set(Math.sin(angle)*3.4,45-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,5-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
+  function positionCamera(){camera.position.set(Math.sin(angle)*3.4,16-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,-1.2-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
   function settle(dt,wave){
-    if(state?.layout!==3)return;
+    if(state?.layout!==4)return;
     const placed=[];
     for(const r of [...records.values()].reverse()){
       if(!r.root.visible)continue;
-      const radius=r.item.radius;
-      const phase=Number(r.item.id.split('-')[1])*2.399;
-      const shift=(wave+tiltZ)*Math.sin(phase)*.65;
-      r.root.position.x=THREE.MathUtils.clamp(r.item.x+shift,-2.78+radius,2.78-radius);
-      r.root.position.z=THREE.MathUtils.clamp(r.item.z+(wave+tiltX)*Math.cos(phase)*.65,-3.48+radius,3.48-radius);
-      let support=radius+(Math.hypot(r.root.position.x,r.root.position.z-.63)<.95?.54:0);
-      for(const other of placed){const d=Math.hypot(r.root.position.x-other.root.position.x,r.root.position.z-other.root.position.z),sum=radius+other.item.radius;if(d<sum)support=Math.max(support,other.root.position.y+Math.sqrt(sum*sum-d*d)+.008);}
-      r.targetY=support;r.velocity-=9.8*dt;
+      const phase=Number(r.item.id.split('-')[1])*2.399,shift=(wave+tiltZ)*Math.sin(phase)*.35;
+      r.root.position.x=THREE.MathUtils.clamp(r.item.x+shift,-1.98,1.98);
+      r.root.position.z=THREE.MathUtils.clamp(r.item.z+(wave+tiltX)*Math.cos(phase)*.35,-3.04,3.04);
+      let support=-5.38;
+      for(const other of placed)if(Math.abs(r.root.position.x-other.root.position.x)<1.78&&Math.abs(r.root.position.z-other.root.position.z)<1.13)support=Math.max(support,other.root.position.y+1.08);
+      // Authored finite packing bounds are invariant during rocking and settling.
+      support=Math.min(r.item.y,support);r.velocity-=9.8*dt;
       r.root.position.y=Math.max(support,r.root.position.y+r.velocity*dt);
       if(r.root.position.y<=support+.001)r.velocity=0;
-      r.root.rotation.z=r.item.roll+shift*.3;
       placed.push(r);
     }
   }
@@ -147,14 +149,14 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     const wave=rockRemaining>0?Math.sin((1200-rockRemaining)*.009)*.075*Math.min(1,rockRemaining/300):0;
     if(rockRemaining>0){contents.rotation.x=tiltX+wave;contents.rotation.z=tiltZ+wave*.65;}else{contents.rotation.x+=(tiltX-contents.rotation.x)*.25;contents.rotation.z+=(tiltZ-contents.rotation.z)*.25;}
     settle(dt/1000,wave);positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
-  function setState(value){const key=value?.version===2?'daily:'+value.day+':'+(value.layout??1):'legacy';if(boardKey!==key){rebuild(value?.version===2?itemsFor(value):BASKET_ITEMS,value?.version===2);boardKey=key;}state=value;lamb.visible=value?.version!==2||rewardFor(value.day).key==='moon';gift.visible=!lamb.visible;const ids=value?.remainingIDs??value?.remaining??entries.map(v=>v.id);const remaining=new Set(ids);updatePrize(remaining.size,value?.status);available=new Set(value?(value.version===2?dailyAvailable(value):legacyAvailable(value)).map(v=>typeof v==='object'?v.id:v):[]);for(const [id,r]of records){r.root.visible=remaining.has(id);r.ring.visible=!r.scattered&&available.has(id);const size=r.scattered?r.item.size:available.has(id)?1:.94;r.shape.scale.set(size,size*(!r.scattered&&r.daily?.5:1),size);}if(active)renderer.render(scene,camera);}
+  function setState(value){const key=value?.version===2?'daily:'+value.day+':'+(value.layout??1):'legacy';if(boardKey!==key){rebuild(value?.version===2?itemsFor(value):BASKET_ITEMS,value?.version===2);boardKey=key;}state=value;lamb.visible=value?.version!==2||rewardFor(value.day).key==='moon';gift.visible=!lamb.visible;const ids=value?.remainingIDs??value?.remaining??entries.map(v=>v.id);const remaining=new Set(ids);updatePrize(remaining.size,value?.status);available=new Set(value?(value.version===2?dailyAvailable(value):legacyAvailable(value)).map(v=>typeof v==='object'?v.id:v):[]);for(const [id,r]of records){r.root.visible=remaining.has(id);r.ring.visible=!r.scattered&&available.has(id);const size=r.item.size===2.15?1:r.scattered?r.item.size:available.has(id)?1:.94;r.shape.scale.set(size,size*(!r.scattered&&r.daily?.5:1),size);}if(active)renderer.render(scene,camera);}
   function setActive(value){if(disposed)return;active=Boolean(value);cancelAnimationFrame(frame);if(active){resize();render();}}
   function rotate(direction){angle=THREE.MathUtils.clamp(angle+Math.sign(direction)*.06,-.12,.12);positionCamera();if(active)renderer.render(scene,camera);}
   function down(event){if(!active||event.button>0)return;pointers.add(event.pointerId);if(pointers.size>1){if(drag)drag.moved=true;return;}drag={id:event.pointerId,x:event.clientX,y:event.clientY,last:event.clientX,moved:false};canvas.setPointerCapture?.(event.pointerId);}
   function move(event){if(!drag||event.pointerId!==drag.id)return;if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>8)drag.moved=true;if(drag.moved){angle=THREE.MathUtils.clamp(angle-(event.clientX-drag.last)*.002,-.12,.12);tiltX=THREE.MathUtils.clamp((event.clientY-drag.y)*.0015,-.1,.1);tiltZ=THREE.MathUtils.clamp((event.clientX-drag.x)*-.001,-.08,.08);positionCamera();}drag.last=event.clientX;}
-  function up(event){pointers.delete(event.pointerId);tiltX=tiltZ=0;if(!drag||event.pointerId!==drag.id)return;const tap=!drag.moved;drag=null;if(canvas.hasPointerCapture?.(event.pointerId))canvas.releasePointerCapture(event.pointerId);if(!tap||!active||state?.status!=='playing')return;const r=canvas.getBoundingClientRect();raycaster.setFromCamera(new THREE.Vector2((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1),camera);scene.updateMatrixWorld(true);const targets=[];contents.traverseVisible(o=>{if(o.isMesh&&o.name!=='selection-ring')targets.push(o);});const hit=raycaster.intersectObjects(targets,false)[0];const id=hit?.object.userData.itemId;if(id!==undefined)onPick(id);}
+  function up(event){pointers.delete(event.pointerId);tiltX=tiltZ=0;if(!drag||event.pointerId!==drag.id)return;const tap=!drag.moved;drag=null;if(canvas.hasPointerCapture?.(event.pointerId))canvas.releasePointerCapture(event.pointerId);if(!tap||!active||state?.status!=='playing')return;const r=canvas.getBoundingClientRect();raycaster.setFromCamera(new THREE.Vector2((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1),camera);scene.updateMatrixWorld(true);const targets=[];contents.traverseVisible(o=>{if(o.isMesh&&o.name!=='selection-ring')targets.push(o);});const hit=raycaster.intersectObjects(targets,false)[0];if(hit?.object.userData.prize){onPrize();return;}const id=hit?.object.userData.itemId;if(id!==undefined)onPick(id);}
   function cancel(){drag=null;pointers.clear();tiltX=tiltZ=0;}
   canvas.style.touchAction='none';canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',cancel);
   const observer=new ResizeObserver(()=>{if(active)resize();});observer.observe(canvas);positionCamera();
-  return {icons:Object.freeze(icons),setState,setActive,rotate,rock(){if(active&&!prizeAwake)rockRemaining=1200;},get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();return {active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:revealProgress>.2,prizeAwake,types:Object.keys(BASKET_TYPES),positions:[...records.values()].filter(r=>r.root.visible).map(r=>({id:r.item.id,x:r.root.position.x,y:r.root.position.y,z:r.root.position.z})),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
+  return {icons:Object.freeze(icons),setState,setActive,rotate,rock(){if(active&&!prizeAwake)rockRemaining=1200;},get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();const prizePoint=keepsake.getWorldPosition(new THREE.Vector3()).project(camera);return {prizePoint:{x:rect.left+(prizePoint.x+1)*rect.width/2,y:rect.top+(1-prizePoint.y)*rect.height/2},active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:keepsake.visible,prizeAwake,types:Object.keys(BASKET_TYPES),positions:[...records.values()].filter(r=>r.root.visible).map(r=>({id:r.item.id,x:r.root.position.x,y:r.root.position.y,z:r.root.position.z})),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
 }

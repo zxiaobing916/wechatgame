@@ -10,9 +10,10 @@ with sync_playwright() as p:
  page.wait_for_function('window.__qimeng3d?.basketInfo',timeout=60000)
  page.evaluate("async()=>{window.daily=await import('/domain/daily-basket.mjs')}")
  page.locator('#basketTab').tap();page.locator('#mainAction').tap()
- assert page.evaluate('window.__qimeng3d.state.basket.layout')==3
+ assert page.evaluate('window.__qimeng3d.state.basket.layout')==4
  assert page.evaluate('window.__qimeng3d.basketInfo.visibleCount')==108
  page.screenshot(path=str(ROOT/'web/assets/scattered-basket.png'))
+ assert not page.evaluate('window.__qimeng3d.basketInfo.prizeVisible')
  before=page.evaluate('window.__qimeng3d.state.basket')
  page.locator('#rockBasket').tap()
  page.wait_for_function('Math.abs(window.__qimeng3d.basketInfo.tilt[0])>.01')
@@ -22,6 +23,7 @@ with sync_playwright() as p:
  # Real drag changes observation angle without picking.
  page.mouse.move(180,350);page.mouse.down();page.mouse.move(215,385,steps=8);page.mouse.up()
  assert page.evaluate('window.__qimeng3d.state.basket')==before
+ assert page.evaluate('Math.max(...window.__qimeng3d.basketInfo.positions.map(p=>p.y))')<.08
  assert abs(page.evaluate('window.__qimeng3d.basketInfo.angle'))<=.121
  # Real ray hits on exposed objects. Retry several projected centres if a corner is occluded.
  successes=0
@@ -38,6 +40,11 @@ with sync_playwright() as p:
  path=page.evaluate('daily.dailyBoard(window.__qimeng3d.state.basket.day).solution')
  for i in range(0,108,12):
   page.evaluate('ids=>{for(const id of ids)document.querySelector(\'[data-basket-item="\'+id+\'"]\').click()}',path[i:i+12])
+ assert page.evaluate('window.__qimeng3d.state.basket.status')=='playing'
+ assert page.evaluate('window.__qimeng3d.basketInfo.prizeVisible')
+ page.screenshot(path=str(ROOT/'web/assets/basket-prize-reveal.png'))
+ point=page.evaluate('window.__qimeng3d.basketInfo.prizePoint')
+ page.touchscreen.tap(point['x'],point['y'])
  assert page.evaluate('window.__qimeng3d.state.basket.status')=='won'
  page.evaluate("document.querySelector('#startBasket').click()")
  assert page.locator('#basketTimer').inner_text()=='10:00'

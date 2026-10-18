@@ -6,8 +6,8 @@ const fail=code=>{const e=new Error(code);e.code=code;throw e;};
 const int=n=>Number.isSafeInteger(n)&&n>=0;
 export function dayAt(now=Date.now()){if(!int(now))fail('INVALID_TIME');return Math.floor((now+OFFSET)/DAY);}
 const cache=new Map();
-export function dailyBoard(day,layout=3){
- if(!int(day)||![1,2,3].includes(layout))fail('INVALID_DAY');const key=day+':'+layout;if(cache.has(key))return cache.get(key);
+export function dailyBoard(day,layout=4){
+ if(!int(day)||![1,2,3,4].includes(layout))fail('INVALID_DAY');const key=day+':'+layout;if(cache.has(key))return cache.get(key);
  let seed=(day^0x76ac8291)>>>0;const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
  const types=Object.keys(BASKET_TYPES);for(let i=types.length-1;i>0;i--){const j=Math.floor(rand()*(i+1));[types[i],types[j]]=[types[j],types[i]];}
  const stacks=Array.from({length:12},()=>[]),path=[];
@@ -20,7 +20,7 @@ export function dailyBoard(day,layout=3){
   }
  }
  let items=path;
- if(layout>=2){
+ if(layout>=2&&layout<4){
   const placed=[];
   for(let n=path.length-1;n>=0;n--){
    const size=layout===3?1.6+rand()*.20:.84+rand()*.14,radius=.51*size;let best=null;
@@ -35,6 +35,18 @@ export function dailyBoard(day,layout=3){
   items=placed.reverse();
   for(let i=0;i<items.length;i++)items[i].blockers=Object.freeze(items.slice(0,i).filter(top=>Math.hypot(top.x-items[i].x,top.z-items[i].z)<top.radius+items[i].radius&&top.y>items[i].y).map(top=>top.id));
  }
+ if(layout===4){
+  items=[];
+  for(let level=0;level<6;level++){
+   const slots=Array.from({length:18},(_,i)=>i);
+   for(let j=17;j>0;j--){const k=Math.floor(rand()*(j+1));[slots[j],slots[k]]=[slots[k],slots[j]];}
+   for(let j=0;j<18;j++){
+    const index=level*18+j,slot=slots[j];
+    items.push({id:path[index].id,type:path[index].type,x:Math.max(-1.95,Math.min(1.95,(slot%3-1)*1.82+(level%2?.48:-.12)+(rand()-.5)*.65)),y:.02-level*1.08,z:Math.max(-2.94,Math.min(2.94,(Math.floor(slot/3)-2.5)*1.16+(level%2?.28:-.12)+(rand()-.5)*.50)),size:2.15,radius:.9,pitch:(rand()-.5)*1.7,yaw:rand()*Math.PI*2,roll:(rand()-.5)*1.5,blockers:[]});
+   }
+  }
+  for(let i=0;i<items.length;i++)items[i].blockers=Object.freeze(items.slice(0,i).filter(t=>t.y>items[i].y&&Math.abs(t.x-items[i].x)<1.8&&Math.abs(t.z-items[i].z)<1.16).map(t=>t.id));
+ }
  const board=Object.freeze({items:Object.freeze(items.map(Object.freeze)),solution:Object.freeze(path.map(i=>i.id))});
  if(cache.size>8)cache.clear();cache.set(key,board);return board;
 }
@@ -44,17 +56,17 @@ export function rewardFor(day,ownsMoon=false){if(!int(day))fail('INVALID_DAY');c
 const freeze=s=>Object.freeze({...s,remaining:Object.freeze([...s.remaining]),tray:Object.freeze([...s.tray]),pending:Object.freeze(s.pending.map(x=>Object.freeze({...x}))),history:Object.freeze([...s.history])});
 export function createBasket(now=Date.now()){
  const day=dayAt(now);
- return freeze({version:2,layout:3,day,remaining:dailyBoard(day).items.map(i=>i.id),tray:[],status:'ready',attempts:0,moves:0,wonOnce:false,claimed:false,wins:0,revives:0,pending:[],history:[]});
+ return freeze({version:2,layout:4,day,remaining:dailyBoard(day).items.map(i=>i.id),tray:[],status:'ready',attempts:0,moves:0,wonOnce:false,claimed:false,wins:0,revives:0,pending:[],history:[]});
 }
 export function validateBasket(s){
- if(!s||s.version!==2||![undefined,1,2,3].includes(s.layout)||!int(s.day)||!Array.isArray(s.remaining)||!Array.isArray(s.tray)||!Array.isArray(s.pending)||!Array.isArray(s.history)||!['ready','playing','lost','won'].includes(s.status)||![s.attempts,s.moves,s.wins,s.revives].every(int)||s.revives>2||typeof s.wonOnce!=='boolean'||typeof s.claimed!=='boolean')fail('INVALID_BASKET');
+ if(!s||s.version!==2||![undefined,1,2,3,4].includes(s.layout)||!int(s.day)||!Array.isArray(s.remaining)||!Array.isArray(s.tray)||!Array.isArray(s.pending)||!Array.isArray(s.history)||!['ready','playing','lost','won'].includes(s.status)||![s.attempts,s.moves,s.wins,s.revives].every(int)||s.revives>2||typeof s.wonOnce!=='boolean'||typeof s.claimed!=='boolean')fail('INVALID_BASKET');
  if(s.deadline!==undefined&&!int(s.deadline))fail('INVALID_TIMER');
  const items=itemsFor(s),byId=new Map(items.map(i=>[i.id,i])),active=[...s.remaining,...s.tray];
  if(active.some(id=>!byId.has(id))||new Set(active).size!==active.length||s.tray.length>7||s.moves!==108-s.remaining.length)fail('INVALID_BASKET');
  for(const type of Object.keys(BASKET_TYPES))if((12-active.filter(id=>byId.get(id).type===type).length)%3!==0||s.tray.filter(id=>byId.get(id).type===type).length>2)fail('INVALID_BASKET');
  const set=new Set(s.remaining);
- if((s.layout??1)===3?false:(s.layout??1)>=2?items.some(i=>!set.has(i.id)&&i.blockers.some(id=>set.has(id))):items.some(i=>set.has(i.id)&&items.some(j=>j.stack===i.stack&&j.layer<i.layer&&!set.has(j.id))))fail('INVALID_BASKET');
- if(s.wonOnce!==(s.wins>0)||s.wins>s.attempts||(s.claimed&&!s.wonOnce)||s.status==='ready'&&(s.moves||s.attempts||s.wins)||s.status!=='ready'&&!s.attempts||s.status==='won'&&(active.length||!s.wonOnce)||s.status==='lost'&&s.tray.length!==7&&s.lossReason!=='time'||s.status==='playing'&&(s.tray.length>=7||!active.length))fail('INVALID_BASKET');
+ if((s.layout??1)>=3?false:(s.layout??1)>=2?items.some(i=>!set.has(i.id)&&i.blockers.some(id=>set.has(id))):items.some(i=>set.has(i.id)&&items.some(j=>j.stack===i.stack&&j.layer<i.layer&&!set.has(j.id))))fail('INVALID_BASKET');
+ if(s.wonOnce!==(s.wins>0)||s.wins>s.attempts||(s.claimed&&!s.wonOnce)||s.status==='ready'&&(s.moves||s.attempts||s.wins)||s.status!=='ready'&&!s.attempts||s.status==='won'&&(active.length||!s.wonOnce)||s.status==='lost'&&s.tray.length!==7&&s.lossReason!=='time'||s.status==='playing'&&(s.tray.length>=7||(!active.length&&s.layout<4)))fail('INVALID_BASKET');
  if(s.history.length!==s.moves||new Set(s.history).size!==s.history.length||s.history.some(id=>!byId.has(id)||set.has(id)))fail('INVALID_BASKET');
  const keys=s.pending.map(p=>p.day);
  if(new Set(keys).size!==keys.length||s.pending.some(p=>p.day!=='legacy'&&(!int(p.day)||p.day>s.day)))fail('INVALID_REWARDS');
@@ -62,7 +74,7 @@ export function validateBasket(s){
 }
 export function migrateBasket(s,now=Date.now()){
  if(!s)return createBasket(now);
- if(s.version===2){validateBasket(s);return advanceDay((s.layout??1)<3?startBasket(s,now):s,now);}
+ if(s.version===2){validateBasket(s);return advanceDay((s.layout??1)<4?startBasket(s,now):s,now);}
  validateLegacy(s);const fresh=createBasket(now);
  return freeze({...fresh,pending:s.wonOnce&&!s.claimed?[{day:'legacy'}]:[]});
 }
@@ -87,11 +99,15 @@ export function expireBasket(s,now=Date.now()){
 }
 export function pickBasket(s,{itemId,now=Date.now(),exposed=false}){
  validateBasket(s);if(expireBasket(s,now).status!=='playing')fail('BASKET_NOT_PLAYING');
- const item=(s.layout===3&&exposed?itemsFor(s).filter(i=>s.remaining.includes(i.id)):availableItems(s)).find(i=>i.id===itemId);if(!item)fail('ITEM_BLOCKED');
+ const item=(s.layout>=3&&exposed?itemsFor(s).filter(i=>s.remaining.includes(i.id)):availableItems(s)).find(i=>i.id===itemId);if(!item)fail('ITEM_BLOCKED');
  const remaining=s.remaining.filter(id=>id!==itemId),byId=new Map(itemsFor(s).map(i=>[i.id,i]));let tray=[...s.tray,itemId];
  if(tray.filter(id=>byId.get(id).type===item.type).length===3)tray=tray.filter(id=>byId.get(id).type!==item.type);
- const won=!remaining.length&&!tray.length;
+ const won=s.layout<4&&!remaining.length&&!tray.length;
  return freeze({...s,remaining,tray,history:[...s.history,itemId],moves:s.moves+1,status:won?'won':tray.length===7?'lost':'playing',wonOnce:s.wonOnce||won,wins:s.wins+Number(won),pending:won&&!s.wonOnce?[...s.pending,{day:s.day}]:s.pending});
+}
+export function collectBasketPrize(s,now=Date.now()){
+ validateBasket(s);if(expireBasket(s,now).status!=='playing'||s.remaining.length||s.tray.length)fail('PRIZE_BLOCKED');
+ return freeze({...s,status:'won',wonOnce:true,wins:s.wins+1,pending:s.wonOnce?s.pending:[...s.pending,{day:s.day}]});
 }
 /** Local adapter receives completion only; production must verify a WeChat ad completion receipt server-side. */
 export function reviveBasket(s,{completed=false,now=Date.now()}={}){
@@ -99,7 +115,7 @@ export function reviveBasket(s,{completed=false,now=Date.now()}={}){
  if(s.lossReason==='time')return freeze({...s,status:'playing',lossReason:null,deadline:now+120000,revives:s.revives+1});
  // Replay the last three moves backwards: all removed objects return to their exact layers.
  const keep=s.history.slice(0,-3);let replay=freeze({...startBasket(s),layout:s.layout??1});
- for(const itemId of keep)replay=pickBasket(replay,{itemId,exposed:s.layout===3});
+ for(const itemId of keep)replay=pickBasket(replay,{itemId,exposed:s.layout>=3});
  return freeze({...replay,deadline:Math.max(s.deadline??now,now)+120000,attempts:s.attempts,revives:s.revives+1});
 }
 export function claimBasketReward(s,ranch,{now,atelier}){

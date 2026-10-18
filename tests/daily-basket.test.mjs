@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createBasket,startBasket,pickBasket,availableItems,dailyBoard,validateBasket,advanceDay,dayAt,rewardFor,reviveBasket,claimBasketReward,migrateBasket} from '../src/domain/daily-basket.mjs';
+import {collectBasketPrize,createBasket,startBasket,pickBasket,availableItems,dailyBoard,validateBasket,advanceDay,dayAt,rewardFor,reviveBasket,claimBasketReward,migrateBasket} from '../src/domain/daily-basket.mjs';
 import {createAtelier} from '../src/domain/atelier.mjs';
 import {createRanchState,buyBreeder} from '../src/domain/ranch.mjs';
 const now=1800000000000,DAY=86400000;
-const win=(s=startBasket(createBasket(now)))=>dailyBoard(s.day).solution.reduce((s,itemId)=>pickBasket(s,{itemId}),s);
+const win=(s=startBasket(createBasket(now)))=>collectBasketPrize(dailyBoard(s.day).solution.reduce((s,itemId)=>pickBasket(s,{itemId}),s));
 function lose(s=startBasket(createBasket(now))){while(s.status==='playing'){const counts={};for(const id of s.tray){const type=dailyBoard(s.day).items.find(i=>i.id===id).type;counts[type]=(counts[type]||0)+1;}const choices=availableItems(s).sort((a,b)=>(counts[a.type]||0)-(counts[b.type]||0));s=pickBasket(s,{itemId:choices[0].id});}return s;}
 test('30 daily hard boards each contain 108 objects and a legal ad-free solution',()=>{
  const signatures=new Set();
  for(let day=0;day<30;day++){
   const s=startBasket(createBasket(now+day*DAY)),board=dailyBoard(s.day);
-  assert.equal(board.items.length,108);assert.equal(new Set(board.items.map(i=>i.x)).size,108);
+  assert.equal(board.items.length,108);assert.equal(new Set(board.items.map(i=>`${i.x},${i.y},${i.z}`)).size,108);
   assert.ok(board.items.every(i=>i.stack===undefined&&Number.isFinite(i.pitch)));
   const result=win(s);assert.equal(result.status,'won');assert.equal(result.revives,0);validateBasket(result);
   signatures.add(JSON.stringify(board.items));
@@ -66,21 +66,25 @@ test('moon reward day retains a full-ranch entitlement and duplicate partner giv
  assert.equal(second.ranch.animals.length,1);
  assert.equal(second.atelier.materials.moonDown,atelier.materials.moonDown+2);
 });
-test('scattered layout has varied poses, safe packing bounds and no colliding bounding spheres',()=>{
+test('108 large props fill six bounded layers across the whole basket',()=>{
  const items=dailyBoard(dayAt(now)).items;
- assert.equal(new Set(items.map(i=>i.x)).size,108);
- assert.ok(items.some(i=>Math.abs(i.pitch)>.9));
- for(let i=0;i<items.length;i++){
-  const a=items[i];assert.ok(Math.abs(a.x)+a.radius<=2.781);assert.ok(Math.abs(a.z)+a.radius<=3.481);
-  assert.ok(a.y>=a.radius);
-  for(const b of items.slice(i+1))assert.ok(Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z)>=a.radius+b.radius-.0001);
+ assert.equal(items.length,108);
+ for(const item of items){assert.ok(item.y>=-5.44&&item.y<=.08);assert.ok(Math.abs(item.x)+.95<2.91);assert.ok(Math.abs(item.z)+.95<3.90);}
+ for(let level=0;level<6;level++){
+ const layer=items.slice(level*18,level*18+18);assert.ok(Math.min(...layer.map(i=>i.z))<-2.3);assert.ok(Math.max(...layer.map(i=>i.z))>2.3);assert.ok(Math.min(...layer.map(i=>i.x))<-1.1);assert.ok(Math.max(...layer.map(i=>i.x))>1.1);
  }
+});
+test('clearing 108 objects only reveals prize; taking prize wins exactly once',()=>{
+ let s=startBasket(createBasket(now));assert.throws(()=>collectBasketPrize(s),/PRIZE_BLOCKED/);
+ for(const itemId of dailyBoard(s.day).solution)s=pickBasket(s,{itemId});
+ assert.equal(s.status,'playing');assert.equal(s.pending.length,0);assert.equal(s.wins,0);validateBasket(s);
+ s=collectBasketPrize(s);assert.equal(s.status,'won');assert.equal(s.pending.length,1);assert.throws(()=>collectBasketPrize(s),/PRIZE_BLOCKED/);
 });
 test('older column save upgrades without losing already earned rewards or granting again',()=>{
  const s=win(),old={...s,layout:1};
  // Won states contain no remaining objects and are valid across both layouts.
  const upgraded=migrateBasket(old,now);
- assert.equal(upgraded.layout,3);assert.equal(upgraded.status,'playing');
+ assert.equal(upgraded.layout,4);assert.equal(upgraded.status,'playing');
  assert.equal(upgraded.wonOnce,true);assert.deepEqual(upgraded.pending,s.pending);
  assert.equal(win(upgraded).pending.length,1);
 });
