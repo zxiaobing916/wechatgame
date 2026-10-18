@@ -14,6 +14,8 @@ with sync_playwright() as p:
  page.wait_for_function('window.ready',timeout=30000)
  page.wait_for_timeout(500)
  assert page.evaluate('view.debug.visibleCount')==36
+ assert page.evaluate('view.debug.revealProgress')==0
+ assert not page.evaluate('view.debug.prizeVisible || view.debug.prizeAwake')
  assert len(page.evaluate('view.debug.selectable'))==12
  out=ROOT/'.artifacts';out.mkdir(exist_ok=True)
  page.screenshot(path=str(out/'basket-initial.png'))
@@ -33,7 +35,25 @@ with sync_playwright() as p:
  page.evaluate('view.setActive(true)');page.wait_for_timeout(300)
  assert all(0<i['x']<390 and 0<i['y']<600 for i in page.evaluate('view.debug.selectable'))
  page.screenshot(path=str(out/'basket-mobile.png'))
+ # Drive a legal solution through domain actions and verify progressive reveal.
+ page.evaluate('state=startBasket(state);view.setState(state)')
+ path=page.evaluate('''async()=>{const m=await import('/domain/basket.mjs');window.pickBasket=m.pickBasket;const seen=new Set();function solve(s){if(s.status==='won')return [];if(s.status!=='playing')return null;const key=s.remaining.join(',')+'|'+[...s.tray].sort().join(',');if(seen.has(key))return null;seen.add(key);for(const i of m.availableItems(s)){const path=solve(m.pickBasket(s,{itemId:i.id}));if(path)return[i.id,...path];}return null;}return solve(state);}''')
+ assert len(path)==36
+ for i,item in enumerate(path):
+  point=next(v for v in page.evaluate('view.debug.selectable') if v['id']==item)
+  page.mouse.click(point['x'],point['y'])
+  assert page.evaluate('state.moves')==i+1,(item,page.evaluate('picks'))
+  if i==17:
+   assert page.evaluate('view.debug.revealProgress')==.5
+   assert page.evaluate('view.debug.prizeVisible && !view.debug.prizeAwake')
+   page.screenshot(path=str(out/'basket-prize-mid.png'))
+ page.wait_for_timeout(1400)
+ assert page.evaluate('view.debug.visibleCount===0 && view.debug.prizeAwake && view.debug.revealProgress===1')
+ page.screenshot(path=str(out/'basket-prize-won.png'))
+ before=page.evaluate('picks.length')
+ page.mouse.click(195,300)
+ assert page.evaluate('picks.length')==before
  page.evaluate('view.dispose()');assert not page.evaluate('view.debug.active')
  assert not errors,errors
  b.close()
- print('PASS: 12 selectable centres hit correct 3D props, removal, drag without pick, inactive lifecycle and mobile framing.')
+ print('PASS: 12 selectable centres hit correct 3D props, removal, drag without pick, inactive lifecycle, mobile framing, legal full solution and non-pickable gradual prize reveal.')

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRanchState,buyBreeder,validateRanchState,migrateRanchState,careRanch,advanceRanch,sellAnimal,rehomeBreeder,canSellAnimal,harvestOffspring,RANCH_RULES} from '../src/domain/ranch.mjs';
-import {createAtelier,groomAnimal,claimTicket,GROOM_COOLDOWN_MS} from '../src/domain/atelier.mjs';
+import {createAtelier,groomAnimal,GROOM_COOLDOWN_MS} from '../src/domain/atelier.mjs';
 const err=(fn,code)=>assert.throws(fn,e=>e.code===code);
 function moon(){const r=buyBreeder(createRanchState(),{speciesId:'sheep',coins:60,level:1,random:()=>.5,now:0}).ranch;return {...r,animals:r.animals.map(a=>({...a,breed:'moon',collection:true}))};}
 test('moon identity is validated and survives care, offline growth and persisted reload',()=>{
@@ -19,14 +19,14 @@ test('unique collection sheep cannot be sold or rehomed at any age, normal sheep
  const mature=advanceRanch(r,{now:RANCH_RULES.growthMs}).ranch;assert.equal(canSellAnimal(mature,id),false);
  const normal={...mature,animals:mature.animals.map(({breed,collection,...a})=>a)};assert.equal(canSellAnimal(normal,id),true);assert.equal(sellAnimal(normal,{animalId:id,coins:0,now:RANCH_RULES.growthMs}).refund,90);
 });
-test('mature moon sheep produces two moon down, independent four-hour cooldown and daily task credit',()=>{
+test('mature moon sheep produces two moon down, independent four-hour cooldown without removed daily tasks',()=>{
  const r=moon(),id=r.animals[0].id,now=RANCH_RULES.growthMs;
  err(()=>groomAnimal(createAtelier(0),r,{animalId:id,now:0}),'ANIMAL_IMMATURE');
  let result=groomAnimal(createAtelier(0),r,{animalId:id,now});
- assert.deepEqual(result.reward.materials,{moonDown:2});assert.match(result.reward.label,/月光绒/);assert.equal(result.atelier.materials.wool,0);assert.equal(result.atelier.materials.moonDown,2);assert.equal(result.atelier.daily.groom,1);
+ assert.deepEqual(result.reward.materials,{moonDown:2});assert.match(result.reward.label,/月光绒/);assert.equal(result.atelier.materials.wool,0);assert.equal(result.atelier.materials.moonDown,2);assert.equal(result.atelier.daily,undefined);
  const restored=migrateRanchState(JSON.parse(JSON.stringify(result.ranch)));
  err(()=>groomAnimal(result.atelier,restored,{animalId:id,now:now+GROOM_COOLDOWN_MS-1}),'GROOM_COOLDOWN');
- result=groomAnimal(result.atelier,restored,{animalId:id,now:now+GROOM_COOLDOWN_MS});assert.equal(result.atelier.materials.moonDown,4);assert.equal(claimTicket(result.atelier,{task:'groom',now:now+GROOM_COOLDOWN_MS}).tickets,4);
+ result=groomAnimal(result.atelier,restored,{animalId:id,now:now+GROOM_COOLDOWN_MS});assert.equal(result.atelier.materials.moonDown,4);assert.equal(result.atelier.tickets,undefined);
 });
 test('moon parent offspring remain ordinary sell-only offspring, never duplicate collection rewards',()=>{
  let r=buyBreeder(moon(),{speciesId:'sheep',coins:60,level:1,random:()=>0,now:0}).ranch;
