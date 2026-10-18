@@ -1,0 +1,21 @@
+{
+  "name": "qimeng-manor-prototype",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "description": "Original fantasy farm and avatar customization prototype; not a production WeChat build",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build:play": "node scripts/build-play.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
