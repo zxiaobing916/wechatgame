@@ -13,3 +13,5 @@ progress{display:block;width:100%;height:10px;margin:12px 0;accent-color:#779b68
 .animal-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.animal-tag{padding:7px 10px;border-radius:12px;border:1px solid #d2d9c9;background:#f6f6ed;font-size:12px}.animal-tag.male{border-color:#9ebdc6}.animal-tag.female{border-color:#d6b2be}#rehomeAnimal{display:block;margin:8px 0;width:100%}
 .animal-list{display:grid;grid-template-columns:1fr;width:100%}.animal-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffdf7}.animal-card p{margin:8px 0}.animal-card button{width:100%}.breeding-toggle{display:flex;align-items:center;gap:8px;line-height:1.6}.breeding-toggle input{width:18px;height:18px;accent-color:var(--sage)}
 .animal-card>small{display:block;margin-top:8px;color:var(--muted);line-height:1.5}
+
+.nature-panel{margin:16px 0;padding:16px;border:1px solid #d6dccc;border-radius:16px;background:#f2f6ed}.nature-panel p{font-size:13px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}.nature-panel summary{cursor:pointer;margin-top:8px;font-size:13px}

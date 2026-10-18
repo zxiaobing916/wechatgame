@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRanchState, sellAnimal, canSellAnimal, animalBusy, setBreedingEnabled, RANCH_RULES, buyBreeder, rehomeBreeder, careRanch, advanceRanch, migrateRanchState,
+import { createRanchState, sellAnimal, canSellAnimal, animalBusy, setBreedingEnabled, RANCH_RULES, buyBreeder, rehomeBreeder, careRanch as applyRanchCare, advanceRanch, migrateRanchState,
   harvestOffspring, stealOffspring, sellOffspring, sellVisitorOffspring, validateRanchState } from '../src/domain/ranch.mjs';
+const careRanch = (ranch,options) => applyRanchCare(ranch,{random:()=>.99,...options});
 const error = code => e => e.code === code;
 const buy = (ranch=createRanchState(), options={}) => buyBreeder(ranch,{speciesId:'sheep',level:1,coins:1000,now:0,random:()=>0,...options});
 function supplied(sexes=[0,.5]) {

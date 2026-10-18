@@ -1,3 +1,4 @@
+import {validateMutation} from './nature.mjs';
 /** Original domain prototype. Production must run these transitions atomically on a server. */
 export class HarvestError extends Error {
   constructor(code) { super(code); this.name = 'HarvestError'; this.code = code; }
@@ -21,6 +22,7 @@ export function createBatch({ batchId, ownerId, productId, kind, initialYield, m
 function validate(batch) {
   if (!batch || typeof batch !== 'object') fail('INVALID_BATCH');
   createBatch(batch);
+  try { validateMutation(batch.mutation); } catch { fail('INVALID_BATCH'); }
   if (!integer(batch.stolen) || batch.stolen > Math.floor(batch.initialYield / 2)
       || !Array.isArray(batch.visitors) || !batch.visitors.every(id)
       || new Set(batch.visitors).size !== batch.visitors.length
@@ -58,7 +60,7 @@ export function stealHarvest(batch, { visitorId, requestedAmount, now }) {
   const next = Object.freeze({ ...batch, stolen: batch.stolen + amount,
     visitors: Object.freeze([...batch.visitors, visitorId]), revision: batch.revision + 1 });
   const reward = Object.freeze({ productId: batch.productId, kind: batch.kind,
-    amount, provenance: 'stolen', sellOnly: true, canBreed: false });
+    ...(batch.mutation ? {mutation:batch.mutation} : {}), amount, provenance: 'stolen', sellOnly: true, canBreed: false });
   return Object.freeze({ batch: next, reward });
 }
 
@@ -69,6 +71,6 @@ export function harvestOwn(batch, { actorId, now }) {
     batch: Object.freeze({ ...batch, visitors: Object.freeze([...batch.visitors]), collected: true, revision: batch.revision + 1 }),
     // Breeding rights are a separate unlock system; a harvest never grants them implicitly.
     reward: Object.freeze({ productId: batch.productId, kind: batch.kind,
-      amount: batch.initialYield - batch.stolen, provenance: 'harvested', sellOnly: true, canBreed: false }),
+      ...(batch.mutation ? {mutation:batch.mutation} : {}), amount: batch.initialYield - batch.stolen, provenance: 'harvested', sellOnly: true, canBreed: false }),
   });
 }

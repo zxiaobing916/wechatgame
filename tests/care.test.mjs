@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createBatch,harvestOwn,stealHarvest} from '../src/domain/harvest.mjs';
 import {applyCare,inspectCare,GROWTH} from '../src/domain/care.mjs';
 const batch=(productId='corn')=>createBatch({batchId:'b',ownerId:'owner',productId,kind:productId==='sheep-offspring'?'offspring':'crop',initialYield:40,maturesAt:100000+GROWTH[productId].durationMs});
-const act=(b,action,extra={})=>applyCare(b,{action,actorId:'owner',coins:10,now:100000,...extra});
+const act=(b,action,extra={})=>applyCare(b,{action,actorId:'owner',coins:10,now:100000,random:()=>.99,...extra});
 test('each product has distinct timing, two bounded care actions and persisted usage',()=>{
  for(const product of Object.keys(GROWTH)){
   const original=batch(product),water=act(original,'water'),fed=act(water.batch,'fertilize');

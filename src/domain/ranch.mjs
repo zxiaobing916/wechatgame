@@ -1,4 +1,5 @@
 /** Original local prototype. Production transitions require authoritative server transactions. */
+import {rollMutation, mutationValue, validateMutation} from './nature.mjs';
 import { inspectCare } from './care.mjs';
 import { createBatch, inspectBatch, harvestOwn, stealHarvest } from './harvest.mjs';
 
@@ -46,7 +47,7 @@ function validateCommon(ranch) {
     const checkItems = (items, provenance) => Array.isArray(items) && items.every((item) => record(item)
       && config && item.productId === `${ranch.speciesId}-offspring` && item.kind === 'offspring'
       && integer(item.amount) && item.amount > 0 && item.amount <= config.yield
-      && item.provenance === provenance && item.sellOnly === true && item.canBreed === false);
+      && validateMutation(item.mutation) && item.provenance === provenance && item.sellOnly === true && item.canBreed === false);
     if (!checkItems(ranch.inventory, 'harvested')) fail('INVALID_RANCH');
     for (const [visitorId, items] of Object.entries(ranch.visitorInventory)) {
       if (!validId(visitorId) || visitorId === OWNER || !checkItems(items, 'stolen')) fail('INVALID_RANCH');
@@ -78,6 +79,7 @@ export function validateRanchState(ranch) {
     const ids = new Set();
     for (const animal of ranch.animals) {
       if (!record(animal) || !validId(animal.id) || !['male','female'].includes(animal.sex) || ids.has(animal.id) || !integer(animal.restUntil) || !integer(animal.growthMs) || animal.growthMs > RANCH_RULES.growthMs) fail('INVALID_RANCH');
+      validateMutation(animal.mutation);
       for (const action of ['Water','Feed']) {
         const readyAt = animal[`${action.toLowerCase()}ReadyAt`], lastAt = animal[`last${action}At`];
         if (!integer(readyAt) || (lastAt !== null && (!integer(lastAt) || readyAt !== safeAdd(lastAt,RANCH_RULES.needsMs)))) fail('INVALID_RANCH');
@@ -178,12 +180,12 @@ function removeAnimal(ranch, {animalId,coins,now = ranch.growthAt ?? 0}, adult) 
   if (animalBusy(ranch,animalId)) fail('BREEDING_ACTIVE');
   if (adult && animal.growthMs < RANCH_RULES.growthMs) fail('ANIMAL_NOT_MATURE');
   const animals = ranch.animals.filter(a=>a.id !== animalId);
-  const refund = adult ? RANCH_RULES.adultSale : 30;
+  const refund = adult ? mutationValue(RANCH_RULES.adultSale,animal.mutation) : 30;
   return Object.freeze({ranch:freezeState({...ranch,animals,needsAt:animals.length ? ranch.needsAt : null}),coins:safeAdd(coins,refund),refund,income:refund});
 }
 export function rehomeBreeder(ranch, options) { return removeAnimal(ranch,options,false); }
 export function sellAnimal(ranch, options) { return removeAnimal(ranch,options,true); }
-export function careRanch(ranch, { action, coins, now = 0 }) {
+export function careRanch(ranch, { action, coins, now = 0, random = Math.random }) {
   validateRanchState(ranch); requireCoins(coins); requireTime(now);
   ranch = settle(ranch,now);
   if (!['water','feed'].includes(action)) fail('INVALID_ACTION');
@@ -199,7 +201,8 @@ export function careRanch(ranch, { action, coins, now = 0 }) {
     if (now < a[readyKey]) return a;
     const reduction = Math.min(RANCH_RULES.careReductionMs,RANCH_RULES.growthMs-a.growthMs);
     savedMs += reduction;
-    return {...a,growthMs:a.growthMs+reduction,[readyKey]:nextReadyAt,[lastKey]:now};
+    const cared = a.growthMs < RANCH_RULES.growthMs ? rollMutation(a,{source:action,random}) : a;
+    return {...cared,growthMs:a.growthMs+reduction,[readyKey]:nextReadyAt,[lastKey]:now};
   });
   return Object.freeze({ranch:freezeState({...ranch,animals,supplies:{...ranch.supplies,[action]:RANCH_RULES.supplyCapacity}}),
     coins:coins-cost,cost,savedMs,affectedAnimalIds:Object.freeze(eligible.map(a=>a.id))});
@@ -251,7 +254,7 @@ export function stealOffspring(ranch, { visitorId, now }) {
 }
 function total(items, config) {
   const amount = items.reduce((sum, item) => safeAdd(sum, item.amount), 0);
-  const income = amount * (config?.sale ?? 0);
+  const income = items.reduce((sum,item)=>safeAdd(sum,item.amount * mutationValue(config?.sale ?? 0,item.mutation)),0);
   if (!integer(income)) fail('NUMERIC_OVERFLOW');
   return { amount, income };
 }

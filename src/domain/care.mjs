@@ -1,4 +1,5 @@
 import {inspectBatch} from './harvest.mjs';
+import {rollMutation} from './nature.mjs';
 
 export const GROWTH = Object.freeze({
  corn:Object.freeze({durationMs:60000,water:12000,fertilize:18000,cost:2}),
@@ -16,7 +17,7 @@ export function inspectCare(batch,now){
  return Object.freeze({config,water:care.water,fertilize:care.fertilize,mature:view.mature,closed:view.collected,remainingMs:Math.max(0,batch.maturesAt-now)});
 }
 /** One use of each care action per batch; no yield or theft-budget changes. */
-export function applyCare(batch,{action,actorId,coins,now}){
+export function applyCare(batch,{action,actorId,coins,now,random=Math.random}){
  const v=inspectCare(batch,now);
  if(actorId!==batch.ownerId)fail('NOT_OWNER');
  if(!['water','fertilize'].includes(action))fail('INVALID_ACTION');
@@ -27,5 +28,5 @@ export function applyCare(batch,{action,actorId,coins,now}){
  if(coins<cost)fail('INSUFFICIENT_COINS');
  const savedMs=Math.min(v.remainingMs,v.config[action]);
  const care=Object.freeze({water:v.water,fertilize:v.fertilize,[action]:true});
- return Object.freeze({batch:Object.freeze({...batch,care,maturesAt:batch.maturesAt-savedMs}),coins:coins-cost,savedMs,cost});
+ return Object.freeze({batch:Object.freeze({...rollMutation(batch,{source:action,random}),care,maturesAt:batch.maturesAt-savedMs}),coins:coins-cost,savedMs,cost});
 }

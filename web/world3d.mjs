@@ -29,6 +29,38 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   const rbox=(p,x,y,z,w,h,d,m,r=.08)=>mesh(new RoundedBoxGeometry(w,h,d,2,Math.min(r,w*.22,h*.22,d*.22)),m,p,x,y,z);
   const sphere=(p,x,y,z,r,m,sx=1,sy=1,sz=1)=>{const o=mesh(new THREE.SphereGeometry(r,16,12),m,p,x,y,z);o.scale.set(sx,sy,sz);return o;};
   const cylinder=(p,x,y,z,r1,r2,h,m)=>mesh(new THREE.CylinderGeometry(r1,r2,h,12),m,p,x,y,z);
+  const mutationColors={dewdrop:'#8bd7ce',lush:'#b5cf8c',frost:'#abd9ee',storm:'#c7b0e4'};
+  const mutationMaterials=Object.fromEntries(Object.entries(mutationColors).map(([key,color])=>[key,mat(color,{roughness:.42,metalness:.12})]));
+  const mutationWool=Object.fromEntries(Object.entries(mutationColors).map(([key,color])=>[key,mat(new THREE.Color('#fff7e8').lerp(new THREE.Color(color),.48))]));
+  const mutationKey=value=>typeof value==='string'?value:value?.key;
+  function mutationGem(parent,key,x,y,z){if(!mutationMaterials[key])return null;const gem=mesh(new THREE.OctahedronGeometry(.12),mutationMaterials[key],parent,x,y,z);gem.name='MutationGem';return gem;}
+  // Fixed GPU buffers: one rain draw call, one snow draw call, no per-frame meshes.
+  const weatherCount=160,weatherPositions=new Float32Array(weatherCount*6),snowPositions=new Float32Array(weatherCount*3);
+  const rainGeometry=new THREE.BufferGeometry();rainGeometry.setAttribute('position',new THREE.BufferAttribute(weatherPositions,3));geometries.add(rainGeometry);
+  const snowGeometry=new THREE.BufferGeometry();snowGeometry.setAttribute('position',new THREE.BufferAttribute(snowPositions,3));geometries.add(snowGeometry);
+  const rainMaterial=new THREE.LineBasicMaterial({color:'#b3dce8',transparent:true,opacity:.62,depthWrite:false});materials.add(rainMaterial);
+  const snowCanvas=document.createElement('canvas');snowCanvas.width=snowCanvas.height=32;const snowContext=snowCanvas.getContext('2d');snowContext.fillStyle='#fff';snowContext.beginPath();snowContext.arc(16,16,13,0,Math.PI*2);snowContext.fill();
+  const snowTexture=new THREE.CanvasTexture(snowCanvas);
+  const snowMaterial=new THREE.PointsMaterial({color:'#fffaf0',size:.13,map:snowTexture,transparent:true,alphaTest:.2,depthWrite:false});materials.add(snowMaterial);
+  const rain=new THREE.LineSegments(rainGeometry,rainMaterial),snow=new THREE.Points(snowGeometry,snowMaterial);scene.add(rain,snow);rain.frustumCulled=snow.frustumCulled=false;rain.visible=snow.visible=false;
+  const weatherClouds=new THREE.Group();scene.add(weatherClouds);weatherClouds.visible=false;
+  const cloudMaterial=mat('#ccd3dc',{roughness:1});
+  for(let i=0;i<4;i++)sphere(weatherClouds,-8+i*5,7.5,-9,.9,cloudMaterial,2.2,.55,1);
+  let weatherType='clear',weatherTime=0;
+  const weatherSky=new THREE.Color('#e5eddf');
+  function setWeather({type='clear'}={}){weatherType=['clear','rain','snow','storm'].includes(type)?type:'clear';rain.visible=weatherType==='rain'||weatherType==='storm';snow.visible=weatherType==='snow';weatherClouds.visible=weatherType!=='clear';return weatherType;}
+  function updateWeather(dt){
+    weatherTime+=dt;const storm=weatherType==='storm',wet=weatherType==='rain';
+    sun.intensity=THREE.MathUtils.lerp(sun.intensity,storm?1.45:wet?1.85:weatherType==='snow'?2.1:2.5,Math.min(1,dt*1.2));
+    weatherSky.set(storm?'#cbd2dc':wet?'#d5e2de':weatherType==='snow'?'#e3eced':'#e5eddf');scene.background.lerp(weatherSky,Math.min(1,dt));scene.fog.color.copy(scene.background);
+    if(!rain.visible&&!snow.visible)return;
+    for(let i=0;i<weatherCount;i++){
+      const x=((i*7.137)%18)-9,z=((i*4.731)%16)-7;
+      if(rain.visible){const y=8-((i*.317+weatherTime*(storm?7:5))%8);const j=i*6;weatherPositions[j]=x;weatherPositions[j+1]=y;weatherPositions[j+2]=z;weatherPositions[j+3]=x+.08;weatherPositions[j+4]=y-.35;weatherPositions[j+5]=z;}
+      else {const j=i*3;snowPositions[j]=x+Math.sin(weatherTime*.65+i)*.3;snowPositions[j+1]=8-((i*.317+weatherTime*.6)%8);snowPositions[j+2]=z;}
+    }
+    if(rain.visible)rainGeometry.attributes.position.needsUpdate=true;else snowGeometry.attributes.position.needsUpdate=true;
+  }
   const ground=mesh(new THREE.CircleGeometry(45,96),M.grass);ground.rotation.x=-Math.PI/2;ground.position.y=-.025;ground.castShadow=false;
   const avatarRoot=new THREE.Group();avatarRoot.position.set(2.25,0,3.5);scene.add(avatarRoot);
   let motion=null;
@@ -202,9 +234,10 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
       for(const t of [-1,1]){const leg=new THREE.Group();leg.position.set(side*.19,.36,t*.18);body.add(leg);cylinder(leg,0,-.17,0,.045,.045,.35,dark);legs.push(leg);}
     }
     if(collarMaterials[sex]){const collar=mesh(new THREE.TorusGeometry(.155,.036,6,16),collarMaterials[sex],head,0,-.01,.13);collar.rotation.x=Math.PI/2;sphere(head,0,-.05,.28,.065,collarMaterials[sex],1,1,.35);}
-    g.traverse(o=>{if(o.isMesh)o.userData.ranch=true;});
+    g.traverse(o=>{if(o.isMesh){o.userData.ranch=true;if(o.material===M.white&&o.parent===body)o.userData.wool=true;}});
+    const mutationMarker=mutationGem(body,'dewdrop',0,1.04,0);mutationMarker.visible=false;
     let seed=2166136261;for(const c of id)seed=Math.imul(seed^c.charCodeAt(0),16777619)>>>0;
-    const record={id,root:g,body,head,neck,legs,seed,state:'walk',phase:index%3,pendingCare:[],lastCare:{water:0,feed:0},remaining:0,target:new THREE.Vector3(),home:index<5?new THREE.Vector3(4,0,-1.3+index*.8):index===5?new THREE.Vector3(5,0,1.9):new THREE.Vector3(x,0,z),slot:null,queuedFor:null,serviceTime:0,age:0,growthMs:sheepGrowthMs};
+    const record={id,root:g,body,head,neck,legs,mutationMarker,mutation:null,seed,state:'walk',phase:index%3,pendingCare:[],lastCare:{water:0,feed:0},remaining:0,target:new THREE.Vector3(),home:index<5?new THREE.Vector3(4,0,-1.3+index*.8):index===5?new THREE.Vector3(5,0,1.9):new THREE.Vector3(x,0,z),slot:null,queuedFor:null,serviceTime:0,age:0,growthMs:sheepGrowthMs};
     sheepRecords.set(id,record);nextSheepBehavior(record,true);return record;
   }
   function setRanch(ranch={},now=Date.now()){
@@ -216,12 +249,15 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
       troughContents[kind].visible=level>0;troughContents[kind].position.y=-.045+level*.0125;
     }
     const desired=animals.map((animal,i)=>({...animal,id:String(animal.id),x:4+(i%2)*.82,z:[-1.3,0,1.45][Math.floor(i/2)]}));
-    for(let i=0;i<count;i++)desired.push({id:`offspring:${batch.batchId}:${i}`,x:3.95+i*.5,z:2.2,baby:true});
+    for(let i=0;i<count;i++)desired.push({id:`offspring:${batch.batchId}:${i}`,x:3.95+i*.5,z:2.2,baby:true,mutation:batch.mutation});
     const ids=new Set(desired.map(a=>a.id));
     for(const [id,record] of sheepRecords)if(!ids.has(id)){releaseTrough(record);clearGroup(record.root);ranchGroup.remove(record.root);sheepRecords.delete(id);}
     desired.forEach((animal,i)=>{
       const existed=sheepRecords.has(animal.id);
       const record=sheepRecords.get(animal.id)||addSheep(animal.id,animal.x,animal.z,animal.sex,i);
+      const mutation=mutationKey(animal.mutation);record.mutation=mutationMaterials[mutation]?mutation:null;
+      record.mutationMarker.visible=Boolean(record.mutation);if(record.mutation)record.mutationMarker.material=mutationMaterials[record.mutation];
+      record.body.children.forEach(o=>{if(o.userData.wool)o.material=mutationWool[record.mutation]||M.white;});
       record.growthMs=animal.baby?0:clamp(Number.isFinite(animal.growthMs)?animal.growthMs:sheepGrowthMs,0,sheepGrowthMs);
       record.root.scale.setScalar(animal.baby?.43:.6+.2*record.growthMs/sheepGrowthMs);
       for(const kind of ['water','feed']){
@@ -303,7 +339,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   function setPlots(plots=[],now=Date.now()){
     plots.slice(0,6).forEach((entry,i)=>{
       const batch=entry && Object.hasOwn(entry,'batch') ? entry.batch : entry;
-      const mature=batch&&now>=batch.maturesAt;const sig=batch?`${batch.batchId}:${batch.productId}:${mature}`:'empty';if(plotSignatures[i]===sig)return;plotSignatures[i]=sig;
+      const mature=batch&&now>=batch.maturesAt;const sig=batch?`${batch.batchId}:${batch.productId}:${mature}:${mutationKey(batch.mutation)}`:'empty';if(plotSignatures[i]===sig)return;plotSignatures[i]=sig;
       const g=cropGroups[i];clearGroup(g);if(!batch)return;
       for(let n=0;n<6;n++){const x=-.65+(n%3)*.65,z=-.47+Math.floor(n/3)*.94;
         if(!mature){for(const s of [-1,1]){const leaf=sphere(g,x+s*.075,.35,z,.13,M.leafLight,.45,1.2,.7);leaf.rotation.z=s*.6;}continue;}
@@ -311,6 +347,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
         else if(batch.productId==='corn'){cylinder(g,x,.72,z,.025,.035,.92,M.leaf);for(const s of [-1,1]){const leaf=sphere(g,x+s*.13,.64,z,.27,M.leafLight,.24,1,.3);leaf.rotation.z=-s*.65;}sphere(g,x,.95,z,.14,M.gold,.6,1.8,.7);}
         else {cylinder(g,x,.55,z,.025,.035,.6,M.leaf);sphere(g,x,.88,z,.18,M.petal,.8,1.4,.8);for(const s of [-1,1])sphere(g,x+s*.12,.5,z,.15,M.leafLight,1,.3,.6);}
       }
+      mutationGem(g,mutationKey(batch.mutation),.82,.82,.72);
       g.traverse(o=>{if(o.isMesh){o.userData.plot=i;}});
     });
   }
@@ -420,9 +457,9 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   function tick(t){if(disposed)return;frame=requestAnimationFrame(tick);const dt=Math.min((t-last)/1000,.05);last=t;if(document.hidden)return;
     let walking=false;
     if(mode==='farm'){const dx=(keys.has('d')||keys.has('ArrowRight')?1:0)-(keys.has('a')||keys.has('ArrowLeft')?1:0),dz=(keys.has('s')||keys.has('ArrowDown')?1:0)-(keys.has('w')||keys.has('ArrowUp')?1:0);if(dx||dz)moveTo(avatarRoot.position.x+dx,avatarRoot.position.z+dz);const delta=target.clone().sub(avatarRoot.position);delta.y=0;const moving=delta.length()>.035;walking=moving;if(moving){avatarRoot.position.addScaledVector(delta.normalize(),Math.min(dt*2.2,target.distanceTo(avatarRoot.position)));avatarRoot.rotation.y=Math.atan2(delta.x,delta.z);avatar.position.y=Math.sin(t*.011)*.012;if(t-lastMove>200){onMove({x:avatarRoot.position.x,z:avatarRoot.position.z});lastMove=t;}}else avatar.position.y=0;}
-    updateCare(t);motion?.update(dt,walking);garmentRoot.position.y=avatar.position.y;updateSheep(dt);controls.update();renderer.render(scene,camera);
+    updateWeather(dt);updateCare(t);motion?.update(dt,walking);garmentRoot.position.y=avatar.position.y;updateSheep(dt);controls.update();renderer.render(scene,camera);
   }
   frame=requestAnimationFrame(tick);
   const ready=new Promise(resolve=>{new GLTFLoader().load(globalThis.QIMENG_MODEL_URL || './assets/models/keeper.glb',gltf=>{if(disposed){gltf.scene.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();});resolve({assetLoaded:false,disposed:true});return;}avatarRoot.remove(avatar);clearGroup(avatar);avatar=gltf.scene;avatarRoot.add(avatar);avatar.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}});art.applyAvatar(avatar);assetLoaded=true;motion=createCharacterMotion(avatar,garments);remember();setFace(face);setOutfit(outfit);setGarment(garment);const result={assetLoaded:true,renderer:'three-webgl',scene};onReady(result);resolve(result);},undefined,error=>{const result={assetLoaded:false,renderer:'three-webgl',warning:'角色模型未能加载，当前显示占位角色。'};onError(new Error(result.warning));onReady(result);resolve(result);});});
-  return {ready,playCare,setPlots,setRanch,setFace,setOutfit,setGarment,setMode,moveTo,get debug(){return {assetLoaded,mode,careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());art.dispose();renderer.dispose();}};
+  return {ready,playCare,setWeather,setPlots,setRanch,setFace,setOutfit,setGarment,setMode,moveTo,get debug(){return {assetLoaded,mode,weather:{type:weatherType,particleCount:weatherType==='clear'?0:weatherCount,rainVisible:rain.visible,snowVisible:snow.visible,sunIntensity:sun.intensity},plotMutations:cropGroups.map(g=>g.children.some(c=>c.name==='MutationGem')),careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,mutation:r.mutation,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());snowTexture.dispose();art.dispose();renderer.dispose();}};
 }
