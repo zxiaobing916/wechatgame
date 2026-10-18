@@ -18,6 +18,8 @@ const result = await build({
   } }],
 });
 let html = await readFile(resolve(root, 'web/play.html'), 'utf8');
+const moonPreview=await readFile(resolve(root,'web/assets/moon-sheep-preview.png'));
+html=html.replaceAll('/assets/moon-sheep-preview.png','data:image/png;base64,'+moonPreview.toString('base64'));
 const css = await readFile(resolve(root, 'web/play.css'), 'utf8');
 html = html.replace(/<link\b[^>]*href=["'](?:\.\/|\/)?play\.css["'][^>]*>/g, '<style>' + css + '</style>');
 html = html.replace(/<script\b[^>]*type=["']importmap["'][^>]*>[\s\S]*?<\/script>/g, '');

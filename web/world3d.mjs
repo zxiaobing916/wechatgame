@@ -69,7 +69,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   sphere(avatar,0,1.6,0,.16,mat('#ecc4ae'),.85,1.15,.9);
   cylinder(avatar,0,.8,0,.16,.33,1.25,mat('#8fa999'));
   let garment='garden',wardrobeSkin=null,ranchCount=0,ranchBabies=0;
-  let face={},outfit='sage',mode='farm',disposed=false,frame=0,assetLoaded=false;
+  let face={},outfit='sage',mode='farm',active=true,disposed=false,frame=0,assetLoaded=false;
   const targets=[],cropGroups=[],plotSignatures=[];
   const plotPositions=[];
   for(let r=0;r<2;r++)for(let c=0;c<3;c++){
@@ -177,6 +177,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
     sphere(g,0,.105,.639,.09,kind==='water'?waterMaterial:feedMaterial,.65,1.15,.25);
     g.traverse(o=>{if(o.isMesh)o.userData.ranchCare=kind;});
   }
+  const moonCream=mat('#fff0d8'),moonLilac=mat('#c4a8df'),moonGold=mat('#f0cc7f',{roughness:.38,metalness:.22});
   const sheep=[],sheepRecords=new Map(),ranchGroup=new THREE.Group();scene.add(ranchGroup);
   const paddock=box(scene,5,.035,.4,3.1,.035,4.5,mat('#adc797'));paddock.userData.ranch=true;
   const behaviorOrder=['walk','graze','rest'];
@@ -235,9 +236,15 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
     }
     if(collarMaterials[sex]){const collar=mesh(new THREE.TorusGeometry(.155,.036,6,16),collarMaterials[sex],head,0,-.01,.13);collar.rotation.x=Math.PI/2;sphere(head,0,-.05,.28,.065,collarMaterials[sex],1,1,.35);}
     g.traverse(o=>{if(o.isMesh){o.userData.ranch=true;if(o.material===M.white&&o.parent===body)o.userData.wool=true;}});
+    const moonDetails=new THREE.Group();moonDetails.name='MoonSheepDetails';body.add(moonDetails);moonDetails.visible=false;
+    for(const side of [-1,1])for(let i=0;i<3;i++)sphere(moonDetails,side*(.28+i*.015),.59+i*.065,(i-1)*.15,.13,moonLilac,.65,1,.9);
+    sphere(moonDetails,0,.83,-.1,.145,moonLilac,1.3,.65,1);
+    // An actual crescent silhouette, not a whole ring or a texture decal.
+    const crescent=new THREE.Shape();crescent.moveTo(.055,.115);crescent.absarc(0,0,.128,Math.PI/3,Math.PI*5/3,false);crescent.quadraticCurveTo(-.055,0,.055,.115);
+    const pin=mesh(new THREE.ExtrudeGeometry(crescent,{depth:.035,bevelEnabled:true,bevelSegments:2,steps:1,bevelSize:.008,bevelThickness:.008,curveSegments:16}),moonGold,head,0,.21,.32);pin.name='MoonCrescentPin';pin.scale.setScalar(.72);pin.visible=false;
     const mutationMarker=mutationGem(body,'dewdrop',0,1.04,0);mutationMarker.visible=false;
     let seed=2166136261;for(const c of id)seed=Math.imul(seed^c.charCodeAt(0),16777619)>>>0;
-    const record={id,root:g,body,head,neck,legs,mutationMarker,mutation:null,seed,state:'walk',phase:index%3,pendingCare:[],lastCare:{water:0,feed:0},remaining:0,target:new THREE.Vector3(),home:index<5?new THREE.Vector3(4,0,-1.3+index*.8):index===5?new THREE.Vector3(5,0,1.9):new THREE.Vector3(x,0,z),slot:null,queuedFor:null,serviceTime:0,age:0,growthMs:sheepGrowthMs};
+    const record={id,root:g,body,head,neck,legs,moonDetails,moonPin:pin,breed:null,mutationMarker,mutation:null,seed,state:'walk',phase:index%3,pendingCare:[],lastCare:{water:0,feed:0},remaining:0,target:new THREE.Vector3(),home:index<5?new THREE.Vector3(4,0,-1.3+index*.8):index===5?new THREE.Vector3(5,0,1.9):new THREE.Vector3(x,0,z),slot:null,queuedFor:null,serviceTime:0,age:0,growthMs:sheepGrowthMs};
     sheepRecords.set(id,record);nextSheepBehavior(record,true);return record;
   }
   function setRanch(ranch={},now=Date.now()){
@@ -257,7 +264,8 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
       const record=sheepRecords.get(animal.id)||addSheep(animal.id,animal.x,animal.z,animal.sex,i);
       const mutation=mutationKey(animal.mutation);record.mutation=mutationMaterials[mutation]?mutation:null;
       record.mutationMarker.visible=Boolean(record.mutation);if(record.mutation)record.mutationMarker.material=mutationMaterials[record.mutation];
-      record.body.children.forEach(o=>{if(o.userData.wool)o.material=mutationWool[record.mutation]||M.white;});
+      record.breed=animal.breed==='moon'?'moon':null;record.moonDetails.visible=record.moonPin.visible=record.breed==='moon';
+      record.body.children.forEach(o=>{if(o.userData.wool)o.material=record.breed==='moon'?moonCream:(mutationWool[record.mutation]||M.white);});
       record.growthMs=animal.baby?0:clamp(Number.isFinite(animal.growthMs)?animal.growthMs:sheepGrowthMs,0,sheepGrowthMs);
       record.root.scale.setScalar(animal.baby?.43:.6+.2*record.growthMs/sheepGrowthMs);
       for(const kind of ['water','feed']){
@@ -488,12 +496,12 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   const ro=new ResizeObserver(resize);ro.observe(canvas);resize();
   function contextLost(e){e.preventDefault();onError(new Error('3D 显示上下文已中断，请刷新页面重试。'));}canvas.addEventListener('webglcontextlost',contextLost);
   let last=performance.now(),lastMove=0;
-  function tick(t){if(disposed)return;frame=requestAnimationFrame(tick);const dt=Math.min((t-last)/1000,.05);last=t;if(document.hidden)return;
+  function tick(t){if(disposed)return;frame=requestAnimationFrame(tick);const dt=Math.min((t-last)/1000,.05);last=t;if(document.hidden||!active)return;
     let walking=false;
     if(mode==='farm'){const dx=(keys.has('d')||keys.has('ArrowRight')?1:0)-(keys.has('a')||keys.has('ArrowLeft')?1:0),dz=(keys.has('s')||keys.has('ArrowDown')?1:0)-(keys.has('w')||keys.has('ArrowUp')?1:0);if(dx||dz)moveTo(avatarRoot.position.x+dx,avatarRoot.position.z+dz);const delta=target.clone().sub(avatarRoot.position);delta.y=0;const moving=delta.length()>.035;walking=moving;if(moving){avatarRoot.position.addScaledVector(delta.normalize(),Math.min(dt*2.2,target.distanceTo(avatarRoot.position)));avatarRoot.rotation.y=Math.atan2(delta.x,delta.z);avatar.position.y=Math.sin(t*.011)*.012;if(t-lastMove>200){onMove({x:avatarRoot.position.x,z:avatarRoot.position.z});lastMove=t;}}else avatar.position.y=0;}
     updateWeather(dt);updateCare(t);motion?.update(dt,walking);garmentRoot.position.y=avatar.position.y;updateSheep(dt);controls.update();renderer.render(scene,camera);
   }
   frame=requestAnimationFrame(tick);
   const ready=new Promise(resolve=>{new GLTFLoader().load(globalThis.QIMENG_MODEL_URL || './assets/models/keeper.glb',gltf=>{if(disposed){gltf.scene.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();});resolve({assetLoaded:false,disposed:true});return;}avatarRoot.remove(avatar);clearGroup(avatar);avatar=gltf.scene;avatarRoot.add(avatar);avatar.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}});art.applyAvatar(avatar);assetLoaded=true;motion=createCharacterMotion(avatar,garments);remember();setFace(face);setOutfit(outfit);setGarment(garment);const result={assetLoaded:true,renderer:'three-webgl',scene};onReady(result);resolve(result);},undefined,error=>{const result={assetLoaded:false,renderer:'three-webgl',warning:'角色模型未能加载，当前显示占位角色。'};onError(new Error(result.warning));onReady(result);resolve(result);});});
-  return {ready,playCare,setWeather,setPlots,setRanch,setFace,setOutfit,setGarment,setWardrobeSkin,setMode,moveTo,get debug(){return {assetLoaded,mode,weather:{type:weatherType,particleCount:weatherType==='clear'?0:weatherCount,rainVisible:rain.visible,snowVisible:snow.visible,sunIntensity:sun.intensity},plotMutations:cropGroups.map(g=>g.children.some(c=>c.name==='MutationGem')),careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,wardrobeSkin,wardrobeSkinVisible:Object.values(skinGroups).filter(g=>g.visible).length,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,mutation:r.mutation,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());snowTexture.dispose();art.dispose();renderer.dispose();}};
+  return {ready,setActive(value){active=Boolean(value);},playCare,setWeather,setPlots,setRanch,setFace,setOutfit,setGarment,setWardrobeSkin,setMode,moveTo,get debug(){return {assetLoaded,active,mode,weather:{type:weatherType,particleCount:weatherType==='clear'?0:weatherCount,rainVisible:rain.visible,snowVisible:snow.visible,sunIntensity:sun.intensity},plotMutations:cropGroups.map(g=>g.children.some(c=>c.name==='MutationGem')),careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,wardrobeSkin,wardrobeSkinVisible:Object.values(skinGroups).filter(g=>g.visible).length,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,breed:r.breed,moonPinVisible:r.moonPin.visible,mutation:r.mutation,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());snowTexture.dispose();art.dispose();renderer.dispose();}};
 }

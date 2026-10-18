@@ -79,6 +79,8 @@ export function validateRanchState(ranch) {
     const ids = new Set();
     for (const animal of ranch.animals) {
       if (!record(animal) || !validId(animal.id) || !['male','female'].includes(animal.sex) || ids.has(animal.id) || !integer(animal.restUntil) || !integer(animal.growthMs) || animal.growthMs > RANCH_RULES.growthMs) fail('INVALID_RANCH');
+      if (animal.breed !== undefined && animal.breed !== 'moon') fail('INVALID_RANCH');
+      if (animal.breed === 'moon' ? animal.collection !== true : animal.collection !== undefined && animal.collection !== false) fail('INVALID_RANCH');
       validateMutation(animal.mutation);
       for (const action of ['Water','Feed']) {
         const readyAt = animal[`${action.toLowerCase()}ReadyAt`], lastAt = animal[`last${action}At`];
@@ -142,7 +144,7 @@ export function animalBusy(ranch, animalId) {
 }
 export function canSellAnimal(ranch, animalId) {
   validateRanchState(ranch);
-  return ranch.animals.some(a=>a.id === animalId && a.growthMs === RANCH_RULES.growthMs) && !animalBusy(ranch,animalId);
+  return ranch.animals.some(a=>a.id === animalId && !a.collection && a.growthMs === RANCH_RULES.growthMs) && !animalBusy(ranch,animalId);
 }
 export function setBreedingEnabled(ranch, {enabled}) {
   validateRanchState(ranch);
@@ -177,6 +179,7 @@ function removeAnimal(ranch, {animalId,coins,now = ranch.growthAt ?? 0}, adult) 
   ranch = settle(ranch,now);
   const animal = ranch.animals.find(a=>a.id === animalId);
   if (!validId(animalId) || !animal) fail('INVALID_ANIMAL');
+  if (animal.collection) fail('COLLECTION_PROTECTED');
   if (animalBusy(ranch,animalId)) fail('BREEDING_ACTIVE');
   if (adult && animal.growthMs < RANCH_RULES.growthMs) fail('ANIMAL_NOT_MATURE');
   const animals = ranch.animals.filter(a=>a.id !== animalId);

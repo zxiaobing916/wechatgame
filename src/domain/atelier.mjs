@@ -28,9 +28,9 @@ export function groomAnimal(a,ranch,{animalId,now}){
  const elapsed=ranch.growthAt===null?0:Math.max(0,now-ranch.growthAt);
  if(animal.growthMs+elapsed<RANCH_RULES.growthMs)fail('ANIMAL_IMMATURE');
  if(now<(animal.groomReadyAt??0))fail('GROOM_COOLDOWN');
- const groomReadyAt=add(now,GROOM_COOLDOWN_MS);a=credit(a,{wool:2});
+ const groomReadyAt=add(now,GROOM_COOLDOWN_MS),material=animal.breed==='moon'?'moonDown':'wool',materials={[material]:2};a=credit(a,materials);
  const updated=Object.freeze({...ranch,animals:Object.freeze(ranch.animals.map(x=>Object.freeze(x.id===animalId?{...x,groomReadyAt}:{...x})))});
- return {atelier:freeze({...a,daily:{...a.daily,groom:add(a.daily.groom,1)}}),ranch:updated,reward:Object.freeze({type:'materials',label:'梳理获得羊毛 ×2',materials:Object.freeze({wool:2}),duplicate:false,pity:false})};
+ return {atelier:freeze({...a,daily:{...a.daily,groom:add(a.daily.groom,1)}}),ranch:updated,reward:Object.freeze({type:'materials',label:`梳理获得${MATERIALS[material].name} ×2`,materials:Object.freeze(materials),duplicate:false,pity:false})};
 }
 export function claimTicket(a,{task,now}){a=daily(a,now);if(!['harvest','groom'].includes(task))fail('INVALID_TASK');if(a.daily[`${task}Claimed`])fail('ALREADY_CLAIMED');if(a.daily[task]<(task==='harvest'?3:1))fail('TASK_INCOMPLETE');return freeze({...a,tickets:add(a.tickets,1),daily:{...a.daily,[`${task}Claimed`]:true}});}
 export function craftSkin(a,{skinId}){validateAtelier(a);if(!has(SKINS,skinId))fail('INVALID_SKIN');if(a.owned.includes(skinId))fail('ALREADY_OWNED');return freeze({...spend(a,SKINS[skinId].cost),owned:[...a.owned,skinId]});}
