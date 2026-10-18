@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {newPlots,awardHarvestXp,unlockPlot,migrateProgress,validateProgress,LEVEL_XP,LAND_COSTS} from '../src/domain/progression.mjs';
+import {runBulk,planBulk} from '../src/domain/bulk.mjs';
+import {createAtelier} from '../src/domain/atelier.mjs';
+const fresh=()=>({progressVersion:1,xp:0,level:1,coins:40,plots:newPlots(),atelier:createAtelier(0)});
+test('first crop earns level two, unlock costs coins once and is sequential',()=>{
+ let s=fresh();assert.equal(s.plots.filter(p=>p.unlocked).length,1);
+ assert.throws(()=>unlockPlot(s,1),/LEVEL_REQUIRED/);
+ assert.equal(planBulk(s,{action:'plant',now:0}).count,1);
+ s=runBulk(s,{action:'plant',now:0}).state;
+ assert.equal(s.coins,32);
+ assert.equal(s.xp,0);
+ s=runBulk(s,{action:'harvest',now:60000}).state;
+ assert.equal(s.xp,10);assert.equal(s.level,2);assert.equal(s.coins,62);
+ assert.equal(runBulk(s,{action:'harvest',now:60000}).state.xp,10);
+ const opened=unlockPlot(s,1);assert.equal(opened.coins,42);assert.equal(s.plots[1].unlocked,false);
+ assert.throws(()=>unlockPlot(opened,1),/ALREADY_UNLOCKED/);
+ assert.throws(()=>unlockPlot(opened,3),/UNLOCK_PREVIOUS/);
+ assert.equal(planBulk(opened,{action:'plant',now:60000}).count,2);
+ assert.equal(planBulk(opened,{action:'plant',crop:'watermelon',now:60000}).count,0);
+});
+test('nine plots can be opened in order; funds and XP are validated',()=>{
+ let s={...fresh(),xp:700,level:9,coins:5000};
+ for(let i=1;i<9;i++)s=unlockPlot(s,i);
+ assert.equal(s.plots.filter(p=>p.unlocked).length,9);
+ assert.equal(s.coins,5000-LAND_COSTS.reduce((a,b)=>a+b));
+ validateProgress(s);
+ assert.throws(()=>unlockPlot({...fresh(),xp:10,level:2,coins:19},1),/INSUFFICIENT_COINS/);
+ assert.throws(()=>validateProgress({...fresh(),xp:10}),/INVALID_PROGRESS/);
+ assert.throws(()=>validateProgress({...fresh(),plots:newPlots().map((p,i)=>i===2?{...p,unlocked:true}:p)}),/INVALID_UNLOCK_ORDER/);
+ assert.throws(()=>awardHarvestXp({...fresh(),xp:Number.MAX_SAFE_INTEGER},'corn'),/INVALID_XP/);
+});
+test('legacy six plots, crop batches and possessions survive migration and reload',()=>{
+ const legacy={level:8,coins:700,plots:newPlots().slice(0,6).map(({unlocked,...p})=>p),face:{eye:1}};
+ legacy.plots[2]={id:2,crop:'corn',batch:{id:'keep'}};
+ const s=migrateProgress(legacy);
+ assert.equal(s.xp,LEVEL_XP[7]);assert.equal(s.coins,700);assert.equal(s.plots[2].batch,legacy.plots[2].batch);
+ assert.equal(s.plots.filter(p=>p.unlocked).length,6);assert.equal(s.plots.length,9);
+ assert.deepEqual(migrateProgress(JSON.parse(JSON.stringify(s))),s);
+ assert.throws(()=>migrateProgress({...legacy,plots:[]}),/INVALID_LEGACY_PROGRESS/);
+});

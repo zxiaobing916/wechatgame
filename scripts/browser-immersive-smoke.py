@@ -7,7 +7,7 @@ with sync_playwright() as p:
  page=b.new_page(viewport={'width':390,'height':844},has_touch=True,device_scale_factor=1)
  errors=[]
  page.on('pageerror',lambda e:errors.append(str(e)))
- page.add_init_script('Date.now=()=>1800000000000')
+ page.add_init_script("Date.now=()=>Number(localStorage.getItem('__testTime')||1800000000000)")
  page.goto('http://127.0.0.1:4174/')
  page.wait_for_function('window.__qimeng3d?.renderInfo?.assetLoaded && window.__qimeng3d?.basketInfo',timeout=60000)
  assert page.locator('#actionSheet').is_hidden()
@@ -18,6 +18,9 @@ with sync_playwright() as p:
  assert page.evaluate('window.__qimeng3d.selectedPlot')==0
  page.locator('#plant').tap()
  assert page.evaluate('window.__qimeng3d.state.plots[0].batch !== null')
+ page.evaluate("localStorage.setItem('__testTime',String(Date.now()+61000))")
+ page.wait_for_function('!document.querySelector("#harvest").disabled')
+ page.locator('#harvest').tap()
  page.locator('#closeSheet').tap()
  page.wait_for_timeout(4600)
  page.screenshot(path=str(ROOT/'web/assets/immersive-farm.png'))

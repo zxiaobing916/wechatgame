@@ -12,7 +12,7 @@ test('bulk plant plans an affordable empty-slot prefix without replacing occupie
  assert.deepEqual(plan.indices,[0,2]);assert.equal(plan.cost,16);assert.equal(plan.eligible,5);assert.equal(plan.skipped,4);
  const r=runBulk(s,{action:'plant',now});assert.equal(r.state.coins,3);assert.equal(r.state.plots[1].batch,s.plots[1].batch);assert.equal(r.state.plots[0].batch.maturesAt,now+60000);assert.equal(r.state.plots[0].batch.weatherSlot,undefined);assert.equal(JSON.stringify(s),before);assert.equal(r.state.face,s.face);
  r.state.plots[0].crop='corn';assert.equal(Object.isFrozen(r.state),false);
- s.level=4;assert.equal(planBulk(s,{action:'plant',now}).count,0);
+ s.level=2;assert.equal(planBulk(s,{action:'plant',crop:'watermelon',now}).count,0);
 });
 test('bulk care skips mature/cared crops and fertilizer stops at next unaffordable crop',()=>{
  const s=fresh(4);s.plots=[plot('corn'),plot('watermelon'),plot('corn'),plot('corn',now),plot('corn',now+10000,{care:{water:true,fertilize:true}}),{crop:null,batch:null}];

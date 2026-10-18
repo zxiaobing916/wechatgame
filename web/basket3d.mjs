@@ -79,6 +79,13 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     }
     return p;
   }
+  const icons={};
+  const iconScene=new THREE.Scene();iconScene.background=new THREE.Color('#fffdf5');
+  iconScene.add(new THREE.HemisphereLight('#fff9ef','#b5bca6',1.7));
+  const iconLight=new THREE.DirectionalLight('#fff5e0',2);iconLight.position.set(-4,10,5);iconScene.add(iconLight);
+  const iconCamera=new THREE.OrthographicCamera(-.58,.58,.58,-.58,.1,10);iconCamera.position.set(1,1.6,2);iconCamera.lookAt(0,.25,0);
+  renderer.setSize(96,96,false);
+  for(const type of Object.keys(BASKET_TYPES)){const object=model(type);iconScene.add(object);renderer.render(iconScene,iconCamera);icons[type]=canvas.toDataURL('image/png');iconScene.remove(object);}
   const entries=Array.isArray(BASKET_ITEMS)?BASKET_ITEMS:Object.values(BASKET_ITEMS);
   const heights={flower:.35,pear:.75,thread:.51,shell:.26,berry:.55,leaf:.25};
   entries.forEach((item,index)=>{
@@ -91,7 +98,7 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     records.set(item.id,{item,root,shape,ring});
   });
   let state=null,available=new Set(),active=false,disposed=false,angle=0,drag=null,frame=0;
-  function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);const aspect=r.width/r.height;const half=aspect<1?4/aspect:4;camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
+  function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);const aspect=r.width/r.height;const half=aspect<1?3.55/aspect:3.55;camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
   function positionCamera(){camera.position.set(Math.sin(angle)*3.4,11-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,.9-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
   function render(){if(!active||disposed)return;positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
   function setState(value){state=value;const ids=value?.remainingIDs??value?.remaining??entries.map(v=>v.id);const remaining=new Set(ids);updatePrize(remaining.size,value?.status);available=new Set(value?availableItems(value).map(v=>typeof v==='object'?v.id:v):[]);for(const [id,r]of records){r.root.visible=remaining.has(id);r.ring.visible=available.has(id);r.shape.scale.setScalar(available.has(id)?1:.94);}if(active)renderer.render(scene,camera);}
@@ -103,5 +110,5 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   function cancel(){drag=null;}
   canvas.style.touchAction='none';canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',cancel);
   const observer=new ResizeObserver(()=>{if(active)resize();});observer.observe(canvas);positionCamera();
-  return {setState,setActive,rotate,get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();return {active,angle,revealProgress,prizeVisible:revealProgress>.2,prizeAwake,types:Object.keys(BASKET_TYPES),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
+  return {icons:Object.freeze(icons),setState,setActive,rotate,get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();return {active,angle,revealProgress,prizeVisible:revealProgress>.2,prizeAwake,types:Object.keys(BASKET_TYPES),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
 }

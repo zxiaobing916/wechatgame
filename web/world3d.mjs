@@ -43,15 +43,16 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   cylinder(avatar,0,.8,0,.16,.33,1.25,mat('#8fa999'));
   let garment='garden',wardrobeSkin=null,ranchCount=0,ranchBabies=0;
   let face={},outfit='sage',mode='farm',active=true,disposed=false,frame=0,assetLoaded=false;
-  const targets=[],cropGroups=[],plotSignatures=[];
+  const targets=[],cropGroups=[],plotSignatures=[],plotLocks=[];
   const plotPositions=[];
-  for(let r=0;r<2;r++)for(let c=0;c<3;c++){
-    const i=r*3+c,x=-4.2+c*2.45,z=-.1+r*2.5;plotPositions.push(new THREE.Vector3(x,0,z));
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    const i=r*3+c,x=-4.2+c*2.45,z=-1.5+r*2.3;plotPositions.push(new THREE.Vector3(x,0,z));
     const bed=new THREE.Group();bed.position.set(x,0,z);scene.add(bed);
     const dirt=rbox(bed,0,.13,0,2.05,.24,1.9,M.soil);dirt.userData.plot=i;targets.push(dirt);
     rbox(bed,0,.16,-1.01,2.25,.29,.13,M.wood);rbox(bed,0,.16,1.01,2.25,.29,.13,M.wood);
     rbox(bed,-1.06,.16,0,.13,.29,2.12,M.wood);rbox(bed,1.06,.16,0,.13,.29,2.12,M.wood);
     for(let k=0;k<3;k++)rbox(bed,-.6+k*.6,.252,0,.05,.014,1.54,M.soil);
+    const lock=new THREE.Group();bed.add(lock);box(lock,0,.55,0,.30,.25,.14,M.gold);const bow=mesh(new THREE.TorusGeometry(.11,.025,6,16,Math.PI),M.gold,lock,0,.68,0);plotLocks.push(lock);
     const crops=new THREE.Group();bed.add(crops);cropGroups.push(crops);
     const marker=box(bed,.82,.48,1.1,.25,.28,.04,M.cream);marker.rotation.y=-.12;
     cylinder(bed,.82,.23,1.1,.025,.025,.5,M.woodDark);
@@ -318,8 +319,9 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   for(let i=0;i<5;i++){const x=Math.cos(i*1.3)*.4,z=Math.sin(i*1.3)*.4;cylinder(fantasy,x,.45,z,.025,.035,.9,M.leaf);const bloom=sphere(fantasy,x,1,z,.19,mat('#c6b4ed',{emissive:'#9c7cca',emissiveIntensity:.18}),.7,1.4,.7);bloom.rotation.z=i*.3;}
   function clearGroup(g){g.traverse(o=>{if(o.isMesh){o.geometry.dispose();geometries.delete(o.geometry);}});g.clear();}
   function setPlots(plots=[],now=Date.now()){
-    plots.slice(0,6).forEach((entry,i)=>{
+    plots.slice(0,9).forEach((entry,i)=>{
       const batch=entry && Object.hasOwn(entry,'batch') ? entry.batch : entry;
+      const locked=entry?.unlocked===false;plotLocks[i].visible=locked;targets[i].material=locked?M.grass:M.soil;
       const mature=batch&&now>=batch.maturesAt;const sig=batch?`${batch.batchId}:${batch.productId}:${mature}:${mutationKey(batch.mutation)}`:'empty';if(plotSignatures[i]===sig)return;plotSignatures[i]=sig;
       const g=cropGroups[i];clearGroup(g);if(!batch)return;
       for(let n=0;n<6;n++){const x=-.65+(n%3)*.65,z=-.47+Math.floor(n/3)*.94;

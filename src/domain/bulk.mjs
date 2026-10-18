@@ -1,10 +1,11 @@
+import {awardHarvestXp} from './progression.mjs';
 /** Pure batch planning and atomic local transitions; production requires server transactions. */
 import {GROWTH,inspectCare,applyCare} from './care.mjs';
 import {createBatch,inspectBatch,harvestOwn} from './harvest.mjs';
 import {RANCH_RULES,RANCH_SPECIES,validateRanchState,buyBreeder} from './ranch.mjs';
 import {grantHarvest,validateAtelier} from './atelier.mjs';
 import {mutationValue} from './nature.mjs';
-export const BULK_CROPS=Object.freeze({corn:Object.freeze({cost:8,level:5,yield:30}),watermelon:Object.freeze({cost:12,level:8,yield:40})});
+export const BULK_CROPS=Object.freeze({corn:Object.freeze({cost:8,level:1,yield:30}),watermelon:Object.freeze({cost:12,level:3,yield:40})});
 export class BulkError extends Error{constructor(code){super(code);this.name='BulkError';this.code=code;}}
 const fail=code=>{throw new BulkError(code);};
 const int=n=>Number.isSafeInteger(n)&&n>=0;
@@ -33,6 +34,7 @@ export function planBulk(state,{action,crop='corn',now}){
   if(state.ranch.speciesId===null||state.ranch.speciesId==='sheep')for(let i=state.ranch.animals.length;i<total;i++)candidates.push({index:i,cost:RANCH_SPECIES.sheep.buy,income:0});
  }else for(let index=0;index<state.plots.length;index++){
   const p=state.plots[index],batch=p.batch;
+  if(p.unlocked===false)continue;
   if(action==='plant'){
    if(!batch&&state.level>=BULK_CROPS[crop].level)candidates.push({index,cost:BULK_CROPS[crop].cost,income:0});
   }else if(batch&&batch.ownerId===OWNER){
@@ -64,7 +66,7 @@ export function runBulk(state,{action,crop='corn',now,random=Math.random}){
    next.plots[index]=({...p,crop,batch});
   }else if(action==='harvest'){
    const result=harvestOwn(p.batch,{actorId:OWNER,now});coins=add(coins,mutationValue(result.reward.amount,result.reward.mutation));
-   next.atelier=grantHarvest(next.atelier,{crop:p.crop,now});next.plots[index]=({...p,crop:null,batch:null});
+   next=awardHarvestXp(next,p.crop);next.atelier=grantHarvest(next.atelier,{crop:p.crop,now});next.plots[index]=({...p,crop:null,batch:null});
   }else{
    const result=applyCare(p.batch,{action,actorId:OWNER,coins,now,random});coins=result.coins;next.plots[index]=({...p,batch:result.batch});
   }
