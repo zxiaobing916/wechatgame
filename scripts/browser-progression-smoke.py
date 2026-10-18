@@ -11,7 +11,7 @@ with sync_playwright() as p:
  s=page.evaluate('window.__qimeng3d.state')
  assert s['level']==1 and len(s['plots'])==9 and sum(p['unlocked'] for p in s['plots'])==1
  assert page.evaluate('window.__qimeng3d.renderInfo.plotCount')==9
- page.locator('#mainAction').tap();page.locator('#plot-1').tap();assert page.locator('#unlockPlot').is_disabled()
+ page.locator('#mainAction').tap();page.locator('.plot-picker>summary').tap();page.locator('#plot-1').tap();assert page.locator('#unlockPlot').is_disabled()
  page.locator('#plot-0').tap();page.locator('#plant').tap()
  page.evaluate("localStorage.setItem('__testTime',String(Date.now()+61000))")
  page.wait_for_function('!document.querySelector("#harvest").disabled')

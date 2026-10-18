@@ -28,8 +28,8 @@ if(!state.atelier)state.atelier=createAtelier(Date.now());
 delete state.nature;
 let toastTimer;
 function notice(t){$('notice').textContent=t;$('notice').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('notice').hidden=true;},4500);}
-function closeSheet(){document.querySelector('.panel').hidden=true;}
-function openSheet(){const panel=document.querySelector('.panel');panel.hidden=false;panel.scrollTop=0;$('sheetTitle').textContent=({farm:'田地 · '+(selected+1),ranch:'我的牧场',basket:'寻宝',face:'捏脸',wardrobe:'衣橱'})[mode];$('closeSheet').focus({preventScroll:true});}
+function closeSheet(){document.querySelector('.panel').hidden=true;delete document.body.dataset.editing;world?.setMode(mode==='basket'?'farm':mode);}
+function openSheet(){const panel=document.querySelector('.panel');panel.hidden=false;document.body.dataset.editing='true';panel.scrollTop=0;if(mode==='farm')world?.focusPlot(selected);$('sheetTitle').textContent=({farm:'田地 · '+(selected+1),ranch:'我的牧场',basket:'寻宝',face:'捏脸',wardrobe:'衣橱'})[mode];$('closeSheet').focus({preventScroll:true});}
 $('closeSheet').addEventListener('click',()=>{closeSheet();$('mainAction').focus({preventScroll:true});});
 $('helpButton').addEventListener('click',()=>$('helpDialog').showModal());
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet();});
@@ -45,7 +45,7 @@ $('mainAction').addEventListener('click',()=>{
 });
 function renderHud(){
  const b=state.basket;
- $('mainAction').textContent=mode==='basket'?({ready:'开始寻宝',playing:'剩余 '+b.remaining.length+' 件 · 更多',lost:'再试一次',won:b.claimed?'珍藏已带回':$('claimBasket').disabled?'牧场已满 · 管理':'带它回家'})[b.status]:({farm:'种植 / 照料',ranch:'照料 / 领养',face:'调整五官',wardrobe:'挑选衣裳'})[mode];
+ $('mainAction').textContent=mode==='basket'?({ready:'开始寻宝',playing:'选项',lost:'再试一次',won:b.claimed?'珍藏已带回':$('claimBasket').disabled?'牧场已满 · 管理':'带它回家'})[b.status]:({farm:'种植 / 照料',ranch:'照料 / 领养',face:'调整五官',wardrobe:'挑选衣裳'})[mode];
  $('trayDock').hidden=mode!=='basket';document.body.dataset.mode=mode;
 }
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch{notice('本地保存失败。请允许浏览器存储，并导出捏脸码留存。');}}
@@ -199,7 +199,7 @@ function renderBasket(){
  $('basketRewardTitle').textContent=b.wonOnce?'已发现 · 月绒羊':'篮底藏着一位牧场伙伴';
  $('basketRewardDescription').textContent=b.wonOnce?'带回牧场，成长后每4小时可梳理2份月光绒，用于制作月羽礼服。珍藏伙伴长期保留，不可出售。':'清走上面的物件，珍藏会一点点露出来。完整整理后直接获得，不需要再抽取。';
  $('basketRewardImage').hidden=!b.wonOnce;
- $('basketProgress').textContent=`剩余 ${b.remaining.length} 件 · 托盘 ${b.tray.length}/7 · 已尝试 ${b.attempts} 次`;
+ $('basketProgress').textContent='';
  $('basketStatus').textContent=({ready:'篮底藏着一位牧场伙伴，清空物件后就能揭晓。',playing:'先观察，再拿取。同类凑齐3件会自动打包，托盘装满7件则本局结束。',lost:'托盘满了。这次先拿了哪些暂时凑不齐的物件？重试会保留同样布局，可以换个顺序。',won:b.claimed?'再次完成整理！可以重试练习，也可以回牧场照料月绒羊。':'整理完成！月绒羊正在等你带它回家。'})[b.status];
  $('startBasket').textContent=b.status==='ready'?'开始整理，发现珍藏':b.status==='playing'?'重新挑战同一篮':'再试一次 · 布局不变';
  $('claimBasket').hidden=b.claimed||!b.wonOnce;
@@ -212,7 +212,7 @@ function renderBasket(){
  const ids=new Set(available.map(item=>typeof item==='string'?item:item.id));
  for(const button of [...$('basketAvailable').children])if(!ids.has(button.dataset.basketItem))button.remove();
  for(const itemValue of available){const item=typeof itemValue==='string'?basketItemById.get(itemValue):itemValue;if(document.querySelector(`[data-basket-item="${item.id}"]`))continue;const button=document.createElement('button');button.dataset.basketItem=item.id;button.textContent=`${BASKET_TYPES[item.type].name} · ${item.stack+1}号位置`;button.addEventListener('click',()=>takeBasketItem(item.id));$('basketAvailable').append(button);}
- basketView?.setState(b);
+ basketView?.setState(b);renderHud();
 }
 function takeBasketItem(itemId){try{const before=state.basket;state.basket=pickBasket(before,{itemId});persist();renderBasket();if(state.basket.status==='won')notice(state.basket.claimed?'又完成了一篮整理！':'挑战成功，已获得月绒羊领养资格！');else if(state.basket.status==='lost')notice('托盘满了，可以免费重试同样的布局。');else if(state.basket.tray.length<before.tray.length)notice('凑齐三个同类，已打包整理。');}catch(e){notice('这件物品暂时不能拿取，请先移开上面的物件。');}}
 $('startBasket').addEventListener('click',()=>{state.basket=startBasket(state.basket);persist();renderBasket();notice('开始整理：点击上层物件，三个相同物件自动消除。');});
@@ -253,9 +253,9 @@ $('steal').addEventListener('click',()=>{const p=state.plots[selected];if(!p.bat
 function syncFace(){FACE_KEYS.forEach(k=>{$(`range-${k}`).value=state.face[k];$(`number-${k}`).value=state.face[k];});document.querySelectorAll('[data-outfit]').forEach(b=>{b.classList.toggle('active',b.dataset.outfit===state.outfit);b.setAttribute('aria-pressed',String(b.dataset.outfit===state.outfit));});world?.setFace(state.face);world?.setOutfit(state.outfit);world?.setGarment?.(state.garment);world?.setWardrobeSkin?.(state.atelier.equipped);document.querySelectorAll('[data-garment]').forEach(b=>{b.classList.toggle('active',b.dataset.garment===state.garment);b.setAttribute('aria-pressed',String(b.dataset.garment===state.garment));});}
 FACE_KEYS.forEach((key,i)=>{const row=document.createElement('div');row.className='slider-row';row.innerHTML=`<div class="slider-label"><label for="range-${key}">${LABELS[i]}</label><input id="number-${key}" type="number" min="-50" max="50" step="1" aria-label="${LABELS[i]}数值"></div><input id="range-${key}" type="range" min="-50" max="50" step="1" aria-label="${LABELS[i]}">`;$('sliders').append(row);for(const prefix of ['range','number'])$(`${prefix}-${key}`).addEventListener('input',e=>{if(e.target.value==='')return;const n=Number(e.target.value);if(!Number.isFinite(n))return;state.face[key]=Math.max(-50,Math.min(50,Math.round(n)));document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('active'));syncFace();persist();});});
 const presets={round:{eyeWidth:-10,eyeHeight:28,eyeTilt:0},long:{eyeWidth:32,eyeHeight:-18,eyeTilt:3},lift:{eyeWidth:16,eyeHeight:0,eyeTilt:30}};
-document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{Object.assign(state.face,presets[b.dataset.preset]);document.querySelectorAll('[data-preset]').forEach(x=>x.classList.toggle('active',x===b));syncFace();persist();notice('眼型已应用，可以继续调整每一个参数。');}));
-document.querySelectorAll('[data-outfit]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.outfit=b.dataset.outfit;syncFace();persist();notice('服装配色已更新。可在衣橱切换服装轮廓。');}));
-document.querySelectorAll('[data-garment]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.garment=b.dataset.garment;syncFace();persist();notice('服装轮廓已切换，捏脸参数保持不变。');}));
+document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{Object.assign(state.face,presets[b.dataset.preset]);document.querySelectorAll('[data-preset]').forEach(x=>x.classList.toggle('active',x===b));syncFace();persist();}));
+document.querySelectorAll('[data-outfit]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.outfit=b.dataset.outfit;syncFace();persist();}));
+document.querySelectorAll('[data-garment]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.garment=b.dataset.garment;syncFace();persist();}));
 function encodeFace(){return 'QM3D2:'+btoa(JSON.stringify({v:2,model:'qimeng-procedural-v1',face:state.face,outfit:state.outfit,garment:state.garment}));}
 function decodeFace(code){
  if(typeof code!=='string'||code.length>4096||!/^QM3D[12]:[A-Za-z0-9+/]+={0,2}$/.test(code))throw Error('格式');
@@ -271,7 +271,7 @@ for(const k of ['farm','ranch','face','wardrobe','basket'])$(k+'Tab').addEventLi
 function worldError(e){$('loading').hidden=false;$('loading').textContent='3D 场景未能启动。请使用支持 WebGL 的较新浏览器，开启硬件加速后刷新。下方经营与捏脸参数仍可操作。';console.error('3D startup error',e);}
 if(initialNotice!=='欢迎来到你的庄园。')notice(initialNotice);tickRanch();render();syncFace();
 window.__qimeng3d=Object.freeze({get ready(){return !!world&&$('loading').hidden;},get renderInfo(){return world?.debug;},get basketInfo(){return basketView?.debug;},get state(){return JSON.parse(JSON.stringify(state));},get selectedPlot(){return selected;},get mode(){return mode;}});
-try{const {createWorld}=await import('./world3d.mjs');world=createWorld({canvas:$('world'),onPlotClick:selectPlot,onRanchClick:()=>{setMode('ranch');openSheet();},onRanchCare:action=>{setMode('ranch');careAction('ranch',action==='water'?'water':'fertilize');},onMove:()=>{},onReady:()=>{$('loading').hidden=true;},onError:worldError});const result=await world.ready;updateWorld();syncFace();world.setMode(mode);$('loading').hidden=true;if(result?.assetLoaded===false)notice('角色模型加载失败，当前为占位角色。请刷新页面重试；经营功能仍可使用。');}catch(e){worldError(e);}
+try{const {createWorld}=await import('./world3d.mjs');world=createWorld({canvas:$('world'),onPlotClick:selectPlot,onRanchClick:()=>{setMode('ranch');openSheet();},onRanchCare:action=>{setMode('ranch');careAction('ranch',action==='water'?'water':'fertilize');},onMove:()=>{},onReady:()=>{$('loading').hidden=true;},onError:worldError});const result=await world.ready;updateWorld();syncFace();const previews=world.garmentPreviews();document.querySelectorAll('[data-garment]').forEach(b=>{const img=document.createElement('img');img.src=previews[b.dataset.garment];img.alt=b.querySelector('strong').textContent;b.prepend(img);});world.setMode(mode);$('loading').hidden=true;if(result?.assetLoaded===false)notice('角色模型加载失败，当前为占位角色。请刷新页面重试；经营功能仍可使用。');}catch(e){worldError(e);}
 try{const {createBasketView}=await import('./basket3d.mjs');basketView=createBasketView({canvas:$('basketWorld'),onPick:takeBasketItem});basketView.setState(state.basket);basketView.setActive(mode==='basket');renderBasket();}catch(e){notice('立体寻宝篮未能启动，可使用下方可拿取物件列表继续体验。');console.error(e);}
 setInterval(()=>{tickRanch();render();updateWorld();},1000);
 window.addEventListener('pagehide',persist);
