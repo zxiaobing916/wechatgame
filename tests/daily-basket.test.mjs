@@ -10,8 +10,8 @@ test('30 daily hard boards each contain 108 objects and a legal ad-free solution
  const signatures=new Set();
  for(let day=0;day<30;day++){
   const s=startBasket(createBasket(now+day*DAY)),board=dailyBoard(s.day);
-  assert.equal(board.items.length,108);assert.equal(new Set(board.items.map(i=>i.stack)).size,12);
-  for(let i=0;i<12;i++)assert.equal(board.items.filter(x=>x.stack===i).length,9);
+  assert.equal(board.items.length,108);assert.equal(new Set(board.items.map(i=>i.x)).size,108);
+  assert.ok(board.items.every(i=>i.stack===undefined&&Number.isFinite(i.pitch)));
   const result=win(s);assert.equal(result.status,'won');assert.equal(result.revives,0);validateBasket(result);
   signatures.add(JSON.stringify(board.items));
  }
@@ -48,7 +48,7 @@ test('repeat victory has no duplicate reward and legacy moon entitlement stays c
  assert.equal(dayAt(now),result.basket.day);
 });
 test('invalid state cannot revive, claim or select hidden pieces',()=>{
- const s=startBasket(createBasket(now)),hidden=dailyBoard(s.day).items.find(i=>i.layer===0);
+ const s=startBasket(createBasket(now)),hidden=dailyBoard(s.day).items.find(i=>i.blockers.length>0);
  assert.throws(()=>pickBasket(s,{itemId:hidden.id}),/ITEM_BLOCKED/);
  assert.throws(()=>validateBasket({...s,remaining:[],tray:[],status:'won'}),/INVALID_BASKET/);
  assert.throws(()=>validateBasket({...s,pending:[{day:s.day+1}]}),/INVALID_REWARDS/);
@@ -65,4 +65,22 @@ test('moon reward day retains a full-ranch entitlement and duplicate partner giv
  const second=claimBasketReward(repeatDay,first.ranch,{now:time+5*DAY,atelier});
  assert.equal(second.ranch.animals.length,1);
  assert.equal(second.atelier.materials.moonDown,atelier.materials.moonDown+2);
+});
+test('scattered layout has varied poses, safe packing bounds and no colliding bounding spheres',()=>{
+ const items=dailyBoard(dayAt(now)).items;
+ assert.equal(new Set(items.map(i=>i.x)).size,108);
+ assert.ok(items.some(i=>Math.abs(i.pitch)>.9));
+ for(let i=0;i<items.length;i++){
+  const a=items[i];assert.ok(Math.abs(a.x)+a.radius<=2.781);assert.ok(Math.abs(a.z)+a.radius<=3.481);
+  assert.ok(a.y>=a.radius);
+  for(const b of items.slice(i+1))assert.ok(Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z)>=a.radius+b.radius-.0001);
+ }
+});
+test('older column save upgrades without losing already earned rewards or granting again',()=>{
+ const s=win(),old={...s,layout:1};
+ // Won states contain no remaining objects and are valid across both layouts.
+ const upgraded=migrateBasket(old,now);
+ assert.equal(upgraded.layout,2);assert.equal(upgraded.status,'playing');
+ assert.equal(upgraded.wonOnce,true);assert.deepEqual(upgraded.pending,s.pending);
+ assert.equal(win(upgraded).pending.length,1);
 });

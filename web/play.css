@@ -115,3 +115,6 @@ body[data-editing][data-mode=basket] #trayDock{visibility:hidden}
 #farmPanel .detail h2{font-size:14px}
 #farmPanel .seed-row select{padding:8px}
 body[data-mode=basket] #mainAction{min-width:88px}
+#rockBasket{position:absolute;top:60px;left:12px;min-height:44px;padding:0 12px;border-radius:22px;background:#fff9;font-size:12px}
+body[data-editing] #rockBasket{display:none}
+@media(max-width:600px){#rockBasket{top:calc(60px + env(safe-area-inset-top,0px))}}
