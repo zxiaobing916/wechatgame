@@ -1,4 +1,4 @@
-"""Actual WebGL weather and isolated mutation renderer checks, without game-state edits."""
+"""Retired weather API and isolated legacy mutation renderer checks, without game-state edits."""
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -15,16 +15,9 @@ with sync_playwright() as p:
  page.evaluate('''()=>{world.setPlots([{batchId:'a',productId:'corn',maturesAt:0,mutation:'dewdrop'},{batchId:'b',productId:'watermelon',maturesAt:0}]);world.setRanch({animals:[{id:'a',mutation:'storm'},{id:'b'}]});}''')
  d=page.evaluate('world.debug');assert d['plotMutations'][:2]==[True,False];assert [a['mutation'] for a in d['sheepBehaviors']]==['storm',None]
  artifacts=ROOT/'.artifacts';artifacts.mkdir(exist_ok=True)
- images={}
- for weather in ['clear','rain','snow','storm']:
-  page.evaluate('(type)=>world.setWeather({type})',weather);page.wait_for_timeout(1100)
-  d=page.evaluate('world.debug.weather');assert d['type']==weather
-  assert d['particleCount']==(0 if weather=='clear' else 160)
-  assert d['rainVisible']==(weather in ['rain','storm']);assert d['snowVisible']==(weather=='snow')
-  images[weather]=page.locator('canvas').screenshot(path=str(artifacts/f'weather-{weather}.png'))
- assert len(set(images.values()))==4
- page.evaluate("world.setPlots([{batchId:'a',productId:'corn',maturesAt:0}]);world.setRanch({animals:[{id:'a'},{id:'b',mutation:'frost'}]});world.setWeather({type:'clear'})")
- d=page.evaluate('world.debug');assert d['plotMutations'][0] is False;assert [a['mutation'] for a in d['sheepBehaviors']]==[None,'frost'];assert d['weather']['particleCount']==0
+ assert page.evaluate('world.setWeather === undefined && world.debug.weather === undefined')
+ page.evaluate("world.setPlots([{batchId:'a',productId:'corn',maturesAt:0}]);world.setRanch({animals:[{id:'a'},{id:'b',mutation:'frost'}]})")
+ d=page.evaluate('world.debug');assert d['plotMutations'][0] is False;assert [a['mutation'] for a in d['sheepBehaviors']]==[None,'frost']
  assert not errors,errors
  b.close()
- print('PASS: clear/rain/snow/storm render, bounded particles, per-animal mutation isolation, crop signature mutation changes, removal and no page errors.')
+ print('PASS: weather removed, legacy mutation isolation, crop signature changes, no page errors.')

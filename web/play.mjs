@@ -1,7 +1,7 @@
 import {planBulk,runBulk} from '/domain/bulk.mjs';
 import {BASKET_ITEMS,BASKET_TYPES,createBasket,validateBasket,startBasket,availableItems,pickBasket,claimBasketReward} from '/domain/basket.mjs';
 import {MATERIALS,SKINS,createAtelier,validateAtelier,migrateAtelier,grantHarvest,groomAnimal,craftSkin,equipSkin,exchangeDown} from '/domain/atelier.mjs';
-import {createNature,advanceNature,mutationValue,mutationName,MUTATIONS} from '/domain/nature.mjs';
+import {mutationValue,mutationName,MUTATIONS} from '/domain/nature.mjs';
 import {applyCare,inspectCare,GROWTH} from '/domain/care.mjs';
 import { createBatch, inspectBatch, stealHarvest, harvestOwn } from '/domain/harvest.mjs';
 import { RANCH_SPECIES, RANCH_RULES, sellAnimal, canSellAnimal, setBreedingEnabled, migrateRanchState, advanceRanch, careRanch, rehomeBreeder, createRanchState, validateRanchState, buyBreeder, harvestOffspring, stealOffspring, sellOffspring as sellOwnerOffspring, sellVisitorOffspring } from '/domain/ranch.mjs';
@@ -23,16 +23,15 @@ let state=fresh(),initialNotice='欢迎来到你的庄园。',selected=0,world=n
 try {const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version===2){const legacy=parsed.ranch?.version!==5;parsed.ranch=migrateRanchState(parsed.ranch);if(legacy){initialNotice='牧场已升级：保留成长比例与公羊休息时间，改用现实时间成长和间隔照料。';try{if(!localStorage.getItem(KEY+'-before-ranch-v5'))localStorage.setItem(KEY+'-before-ranch-v5',raw);}catch{}}}if(parsed.atelier){const oldAtelier=parsed.atelier;parsed.atelier=migrateAtelier(oldAtelier);if(oldAtelier.version===1){initialNotice=`抽奖已移除，原有服装和材料保留。${oldAtelier.tickets?`剩余${oldAtelier.tickets}张奖券已兑换${oldAtelier.tickets*2}份羊毛。`:''}`;try{if(!localStorage.getItem(KEY+'-before-atelier-v2'))localStorage.setItem(KEY+'-before-atelier-v2',raw);}catch{}}}if(validState(parsed)){state=parsed.version===1?{...parsed,version:2,garment:'garden',ranch:createRanchState()}:parsed;if(parsed.version===1){initialNotice='已保留旧版金币、田地与外观，牧场和衣橱现已开放。';try{if(!localStorage.getItem(KEY+'-before-v2'))localStorage.setItem(KEY+'-before-v2',raw);}catch{/* A backup quota failure must not discard the loaded save. */}}}else initialNotice='旧存档格式无法读取，已开启新的本地体验。';}}catch{initialNotice='浏览器存储不可用，本次体验可能无法保存。';}
 if(!state.basket)state.basket=createBasket();
 if(!state.atelier)state.atelier=createAtelier(Date.now());
-if(!state.nature)state.nature=createNature(Date.now());
+// Discard retired weather scheduling without touching collected variants.
+delete state.nature;
 function notice(t){$('notice').textContent=t;}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch{notice('本地保存失败。请允许浏览器存储，并导出捏脸码留存。');}}
-function updateWorld(){world?.setWeather?.(state.nature);world?.setPlots(state.plots,Date.now());world?.setRanch?.(state.ranch,Date.now());}
+function updateWorld(){world?.setPlots(state.plots,Date.now());world?.setRanch?.(state.ranch,Date.now());}
 function render(){
  $('coins').textContent=state.coins;
- const weatherNames={clear:'晴天',rain:'细雨',snow:'轻雪',storm:'雷雨'};
- $('weatherNow').textContent=`${weatherNames[state.nature.type]} · ${duration((state.nature.slot+1)*1800000-Date.now())}后更新`;
  const variants=[...state.plots.filter(p=>p.batch?.mutation).map(p=>`田地${p.id+1}：${mutationName(p.batch.mutation)}`),...state.ranch.animals.filter(a=>a.mutation).map((a)=>`${a.id.replace('sheep-','绵羊')}：${mutationName(a.mutation)}`)];
- $('mutationList').textContent=variants.length?variants.join(' · '):'还没有发现变异，照料与天气可能带来惊喜。';
+ $('mutationList').textContent=variants.length?variants.join(' · '):'还没有发现变异，照料可能带来惊喜。';
  renderBasket();
  renderAtelier();
  renderBulk();
@@ -129,7 +128,7 @@ function renderRanch(){
  $('rehomeBreeder').disabled=!ranch.animals.length||!!ranch.pairing||!!batch||(ranch.animals.find(a=>a.id===$('rehomeAnimal').value)?.collection||ranch.animals.find(a=>a.id===$('rehomeAnimal').value)?.growthMs>=RANCH_RULES.growthMs);
 }
 function tickRanch(){
- try{state=advanceNature(state,Date.now());const result=advanceRanch(state.ranch,{now:Date.now()});if(result.changed){state.ranch=result.ranch;persist();if(result.event==='success')notice('配对成功，已进入孕育期。');if(result.event==='failed')notice(`本次没有受孕。公羊休息 ${RANCH_RULES.maleRestMs/60000} 分钟后才能再次配对，不会自动扣金币。`);}}
+ try{const result=advanceRanch(state.ranch,{now:Date.now()});if(result.changed){state.ranch=result.ranch;persist();if(result.event==='success')notice('配对成功，已进入孕育期。');if(result.event==='failed')notice(`本次没有受孕。公羊休息 ${RANCH_RULES.maleRestMs/60000} 分钟后才能再次配对，不会自动扣金币。`);}}
  catch(e){console.error('Ranch progression failed',e);notice('牧场计时暂时无法更新，请刷新重试。');}
 }
 for(const [id,c] of Object.entries(RANCH_SPECIES)){const card=document.createElement('div');card.className='species-card'+(c.available?'':' locked');card.dataset.species=id;const name=document.createElement('strong');name.textContent=c.name;const detail=document.createElement('small');detail.textContent=c.available?`已开放 · 每只 60 金币 · 公 ${Math.round(RANCH_RULES.maleChance*100)}% / 母 ${Math.round((1-RANCH_RULES.maleChance)*100)}%`:`等级 ${c.level} 解锁 · 当前体验等级 ${state.level} · 此样板暂未开放`;card.append(name,detail);$('speciesCards').append(card);}
@@ -209,7 +208,7 @@ $('skinRecipes').addEventListener('click',e=>{const b=e.target.closest('[data-ma
 function selectPlot(id){const n=Number(typeof id==='object'?id.id:id);if(Number.isInteger(n)&&n>=0&&n<6){selected=n;render();}}
 for(let i=0;i<6;i++){const b=document.createElement('button');b.id=`plot-${i}`;b.innerHTML=`田地 ${i+1}<small>空地</small>`;b.addEventListener('click',()=>selectPlot(i));$('plots').append(b);}
 $('seed').addEventListener('change',render);
-$('plant').addEventListener('click',()=>{const p=state.plots[selected],crop=$('seed').value,c=CROPS[crop];if(p.batch||state.coins<c.cost||state.level<c.level)return;state.coins-=c.cost;p.crop=crop;p.batch={...createBatch({batchId:`plot-${selected}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,ownerId:'local-owner',productId:crop,kind:'crop',initialYield:c.yield,maturesAt:Date.now()+c.seconds*1000}),startedAt:Date.now(),weatherSlot:state.nature.slot};notice(`已种下${c.name}，扣除 ${c.cost} 金币。`);persist();render();updateWorld();});
+$('plant').addEventListener('click',()=>{const p=state.plots[selected],crop=$('seed').value,c=CROPS[crop];if(p.batch||state.coins<c.cost||state.level<c.level)return;state.coins-=c.cost;p.crop=crop;p.batch={...createBatch({batchId:`plot-${selected}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,ownerId:'local-owner',productId:crop,kind:'crop',initialYield:c.yield,maturesAt:Date.now()+c.seconds*1000}),startedAt:Date.now()};notice(`已种下${c.name}，扣除 ${c.cost} 金币。`);persist();render();updateWorld();});
 $('harvest').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;try{const result=harvestOwn(p.batch,{actorId:'local-owner',now:Date.now()});const income=mutationValue(result.reward.amount,result.reward.mutation);state.atelier=grantHarvest(state.atelier,{crop:p.crop,now:Date.now()});state.coins+=income;p.crop=null;p.batch=null;notice(`收获并出售 ${result.reward.amount} 份，获得 ${income} 金币，以及2份染料，已收入衣橱材料仓。`);persist();render();updateWorld();}catch(e){notice(e.code==='NOT_MATURE'?'作物尚未成熟，暂时不能收获。':`收获失败（${e.code||'UNEXPECTED_ERROR'}），请刷新后重试。`);if(e.code!=='NOT_MATURE')console.error(e);}});
 $('mature').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;p.batch={...p.batch,maturesAt:Date.now()};notice('本地演示：当前作物已成熟。正式游戏不提供这个按钮。');persist();render();updateWorld();});
 $('steal').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;try{const result=stealHarvest(p.batch,{visitorId:$('visitor').value,requestedAmount:4,now:Date.now()});p.batch=result.batch;notice(`模拟访客取走 ${result.reward.amount} 份，你的金币不变。主人仍保留至少 ${Math.ceil(p.batch.initialYield/2)} 份。`);persist();render();updateWorld();}catch(e){notice(({ALREADY_VISITED:'这位访客本批已经摘取过了。',THEFT_CAP_REACHED:'已达到累计一半上限，不能再偷。',NOT_MATURE:'还未成熟，不能摘取。'})[e.code]||'本次摘取未完成。');}});

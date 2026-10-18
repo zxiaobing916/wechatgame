@@ -24,7 +24,6 @@ function validate(state,action,crop,now){
  }
  if(action==='buySheep')validateRanchState(state.ranch);
  if(action==='harvest')validateAtelier(state.atelier);
- if(action==='plant'&&(!state.nature||!int(state.nature.slot)))fail('INVALID_NATURE');
 }
 export function planBulk(state,{action,crop='corn',now}){
  validate(state,action,crop,now);
@@ -61,7 +60,7 @@ export function runBulk(state,{action,crop='corn',now,random=Math.random}){
    const result=buyBreeder(next.ranch,{speciesId:'sheep',level:state.level,coins,now,random});next.ranch=result.ranch;coins=result.coins;
   }else if(action==='plant'){
    const config=BULK_CROPS[crop];coins-=config.cost;
-   const batch=Object.freeze({...createBatch({batchId:`plot-${index}-${now}`,ownerId:OWNER,productId:crop,kind:'crop',initialYield:config.yield,maturesAt:add(now,GROWTH[crop].durationMs)}),startedAt:now,weatherSlot:state.nature.slot});
+   const batch=Object.freeze({...createBatch({batchId:`plot-${index}-${now}`,ownerId:OWNER,productId:crop,kind:'crop',initialYield:config.yield,maturesAt:add(now,GROWTH[crop].durationMs)}),startedAt:now});
    next.plots[index]=({...p,crop,batch});
   }else if(action==='harvest'){
    const result=harvestOwn(p.batch,{actorId:OWNER,now});coins=add(coins,mutationValue(result.reward.amount,result.reward.mutation));
