@@ -1,6 +1,6 @@
 import {LEVEL_XP,LAND_COSTS,newPlots,migrateProgress,validateProgress,awardHarvestXp,unlockPlot} from '/domain/progression.mjs';
 import {planBulk,runBulk} from '/domain/bulk.mjs';
-import {BASKET_ITEMS,BASKET_TYPES,createBasket,validateBasket,startBasket,availableItems,pickBasket,claimBasketReward} from '/domain/basket.mjs';
+import {BASKET_TYPES,createBasket,validateBasket,startBasket,availableItems,pickBasket,claimBasketReward,migrateBasket,advanceDay,itemsFor,rewardFor,reviveBasket} from '/domain/daily-basket.mjs';
 import {MATERIALS,SKINS,createAtelier,validateAtelier,migrateAtelier,grantHarvest,groomAnimal,craftSkin,equipSkin,exchangeDown} from '/domain/atelier.mjs';
 import {mutationValue,mutationName,MUTATIONS} from '/domain/nature.mjs';
 import {applyCare,inspectCare,GROWTH} from '/domain/care.mjs';
@@ -21,7 +21,7 @@ function validState(s){
  try{validateProgress(s);if(s.basket)validateBasket(s.basket);if(s.atelier)validateAtelier(s.atelier);if(s.version===2){if(!GARMENTS.includes(s.garment))return false;validateRanchState(s.ranch);}return s.plots.every((p,i)=>{if(!p||p.id!==i)return false;if(p.crop===null)return p.batch===null;const c=CROPS[p.crop];if(!c||!p.batch||p.batch.productId!==p.crop||p.batch.kind!=='crop'||p.batch.ownerId!=='local-owner'||p.batch.initialYield!==c.yield||p.batch.collected)return false;inspectBatch(p.batch,Date.now());inspectCare(p.batch,Date.now());return true;});}catch{return false;}
 }
 let state=fresh(),initialNotice='欢迎来到你的庄园。',selected=0,world=null,basketView=null,mode='farm';
-try {const raw=localStorage.getItem(KEY);if(raw){let parsed=JSON.parse(raw);parsed=migrateProgress(parsed);if(parsed.version===2){const legacy=parsed.ranch?.version!==5;parsed.ranch=migrateRanchState(parsed.ranch);if(legacy){initialNotice='牧场已升级：保留成长比例与公羊休息时间，改用现实时间成长和间隔照料。';try{if(!localStorage.getItem(KEY+'-before-ranch-v5'))localStorage.setItem(KEY+'-before-ranch-v5',raw);}catch{}}}if(parsed.atelier){const oldAtelier=parsed.atelier;parsed.atelier=migrateAtelier(oldAtelier);if(oldAtelier.version===1){initialNotice=`抽奖已移除，原有服装和材料保留。${oldAtelier.tickets?`剩余${oldAtelier.tickets}张奖券已兑换${oldAtelier.tickets*2}份羊毛。`:''}`;try{if(!localStorage.getItem(KEY+'-before-atelier-v2'))localStorage.setItem(KEY+'-before-atelier-v2',raw);}catch{}}}if(validState(parsed)){state=parsed.version===1?{...parsed,version:2,garment:'garden',ranch:createRanchState()}:parsed;if(parsed.version===1){initialNotice='已保留旧版金币、田地与外观，牧场和衣橱现已开放。';try{if(!localStorage.getItem(KEY+'-before-v2'))localStorage.setItem(KEY+'-before-v2',raw);}catch{/* A backup quota failure must not discard the loaded save. */}}}else initialNotice='旧存档格式无法读取，已开启新的本地体验。';}}catch{initialNotice='浏览器存储不可用，本次体验可能无法保存。';}
+try {const raw=localStorage.getItem(KEY);if(raw){let parsed=JSON.parse(raw);parsed=migrateProgress(parsed);parsed.basket=migrateBasket(parsed.basket,Date.now());if(parsed.version===2){const legacy=parsed.ranch?.version!==5;parsed.ranch=migrateRanchState(parsed.ranch);if(legacy){initialNotice='牧场已升级：保留成长比例与公羊休息时间，改用现实时间成长和间隔照料。';try{if(!localStorage.getItem(KEY+'-before-ranch-v5'))localStorage.setItem(KEY+'-before-ranch-v5',raw);}catch{}}}if(parsed.atelier){const oldAtelier=parsed.atelier;parsed.atelier=migrateAtelier(oldAtelier);if(oldAtelier.version===1){initialNotice=`抽奖已移除，原有服装和材料保留。${oldAtelier.tickets?`剩余${oldAtelier.tickets}张奖券已兑换${oldAtelier.tickets*2}份羊毛。`:''}`;try{if(!localStorage.getItem(KEY+'-before-atelier-v2'))localStorage.setItem(KEY+'-before-atelier-v2',raw);}catch{}}}if(validState(parsed)){state=parsed.version===1?{...parsed,version:2,garment:'garden',ranch:createRanchState()}:parsed;if(parsed.version===1){initialNotice='已保留旧版金币、田地与外观，牧场和衣橱现已开放。';try{if(!localStorage.getItem(KEY+'-before-v2'))localStorage.setItem(KEY+'-before-v2',raw);}catch{/* A backup quota failure must not discard the loaded save. */}}}else initialNotice='旧存档格式无法读取，已开启新的本地体验。';}}catch{initialNotice='浏览器存储不可用，本次体验可能无法保存。';}
 if(!state.basket)state.basket=createBasket();
 if(!state.atelier)state.atelier=createAtelier(Date.now());
 // Discard retired weather scheduling without touching collected variants.
@@ -38,14 +38,15 @@ $('notice').hidden=true;
 $('trayDock').append($('basketTray'));
 $('mainAction').addEventListener('click',()=>{
  if(mode==='basket'){
-  if(state.basket.status==='ready'||state.basket.status==='lost'){$('startBasket').click();return;}
+  if(state.basket.status==='lost'){openSheet();return;}
+  if(state.basket.status==='ready'){$('startBasket').click();return;}
   if(state.basket.status==='won'&&!state.basket.claimed&&!$('claimBasket').disabled){$('claimBasket').click();return;}
  }
  openSheet();
 });
 function renderHud(){
  const b=state.basket;
- $('mainAction').textContent=mode==='basket'?({ready:'开始寻宝',playing:'选项',lost:'再试一次',won:b.claimed?'珍藏已带回':$('claimBasket').disabled?'牧场已满 · 管理':'带它回家'})[b.status]:({farm:'种植 / 照料',ranch:'照料 / 领养',face:'调整五官',wardrobe:'挑选衣裳'})[mode];
+ $('mainAction').textContent=mode==='basket'?({ready:'开始寻宝',playing:'选项',lost:'重试 / 复活',won:b.claimed?'今日已领取':$('claimBasket').disabled?'牧场已满 · 管理':'领取奖励'})[b.status]:({farm:'种植 / 照料',ranch:'照料 / 领养',face:'调整五官',wardrobe:'挑选衣裳'})[mode];
  $('trayDock').hidden=mode!=='basket';document.body.dataset.mode=mode;
 }
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch{notice('本地保存失败。请允许浏览器存储，并导出捏脸码留存。');}}
@@ -165,7 +166,7 @@ function renderRanch(){
  $('rehomeBreeder').disabled=!ranch.animals.length||!!ranch.pairing||!!batch||(ranch.animals.find(a=>a.id===$('rehomeAnimal').value)?.collection||ranch.animals.find(a=>a.id===$('rehomeAnimal').value)?.growthMs>=RANCH_RULES.growthMs);
 }
 function tickRanch(){
- try{const result=advanceRanch(state.ranch,{now:Date.now()});if(result.changed){state.ranch=result.ranch;persist();if(result.event==='success')notice('配对成功，已进入孕育期。');if(result.event==='failed')notice(`本次没有受孕。公羊休息 ${RANCH_RULES.maleRestMs/60000} 分钟后才能再次配对，不会自动扣金币。`);}}
+ try{const daily=advanceDay(state.basket,Date.now());if(daily!==state.basket){state.basket=daily;persist();}const result=advanceRanch(state.ranch,{now:Date.now()});if(result.changed){state.ranch=result.ranch;persist();if(result.event==='success')notice('配对成功，已进入孕育期。');if(result.event==='failed')notice(`本次没有受孕。公羊休息 ${RANCH_RULES.maleRestMs/60000} 分钟后才能再次配对，不会自动扣金币。`);}}
  catch(e){console.error('Ranch progression failed',e);notice('牧场计时暂时无法更新，请刷新重试。');}
 }
 for(const [id,c] of Object.entries(RANCH_SPECIES)){const card=document.createElement('div');card.className='species-card'+(c.available?'':' locked');card.dataset.species=id;const name=document.createElement('strong');name.textContent=c.name;const detail=document.createElement('small');detail.textContent=c.available?`已开放 · 每只 60 金币 · 公 ${Math.round(RANCH_RULES.maleChance*100)}% / 母 ${Math.round((1-RANCH_RULES.maleChance)*100)}%`:`等级 ${c.level} 解锁 · 当前体验等级 ${state.level} · 此样板暂未开放`;card.append(name,detail);$('speciesCards').append(card);}
@@ -192,21 +193,25 @@ function renderBulk(){
 }
 for(const [id,action] of [['bulkPlant','plant'],['bulkHarvest','harvest'],['bulkWater','water'],['bulkFertilize','fertilize'],['bulkBuySheep','buySheep']])$(id).addEventListener('click',()=>{try{tickRanch();const result=runBulk(state,{action,crop:$('seed').value,now:Date.now()});state=result.state;persist();render();updateWorld();const names={plant:'播种',harvest:'收获',water:'浇水',fertilize:'施肥',buySheep:'购买绵羊'};notice(`${names[action]}完成：${result.count}${action==='buySheep'?'只':'块地'}${result.cost?`，花费${result.cost}金币`:''}${result.income?`，收入${result.income}金币`:''}。${action==='harvest'?'染料已收入材料仓。':'只处理符合条件且金币足够的部分。'}`);if((action==='water'||action==='fertilize')&&result.indices.length)world?.playCare?.({target:'farm',plotIndex:result.indices[0],action});}catch(e){notice(`批量操作未完成（${e.code||e.message}），资源未扣除。`);}});
 
-const basketItemById=new Map(BASKET_ITEMS.map(item=>[item.id,item]));
+let basketItemById=new Map();
 function renderBasket(){
- const b=state.basket;
- $('basketHeading').textContent=b.wonOnce?'月绒羊珍藏篮':'庄园寻宝篮';
- $('basketRewardTitle').textContent=b.wonOnce?'已发现 · 月绒羊':'篮底藏着一位牧场伙伴';
- $('basketRewardDescription').textContent=b.wonOnce?'带回牧场，成长后每4小时可梳理2份月光绒，用于制作月羽礼服。珍藏伙伴长期保留，不可出售。':'清走上面的物件，珍藏会一点点露出来。完整整理后直接获得，不需要再抽取。';
- $('basketRewardImage').hidden=!b.wonOnce;
+ const b=state.basket;basketItemById=new Map(itemsFor(b).map(i=>[i.id,i]));
+ $('basketHeading').textContent='每日高难寻宝';
+ $('basketRewardTitle').textContent=b.wonOnce?rewardFor(b.day,state.ranch.animals.some(a=>a.breed==='moon')).label:'今日珍藏，藏在篮底';
+ $('basketRewardDescription').textContent=b.wonOnce?'已收入领取清单。':'';
+ $('basketRewardImage').hidden=true;
  $('basketProgress').textContent='';
- $('basketStatus').textContent=({ready:'篮底藏着一位牧场伙伴，清空物件后就能揭晓。',playing:'先观察，再拿取。同类凑齐3件会自动打包，托盘装满7件则本局结束。',lost:'托盘满了。这次先拿了哪些暂时凑不齐的物件？重试会保留同样布局，可以换个顺序。',won:b.claimed?'再次完成整理！可以重试练习，也可以回牧场照料月绒羊。':'整理完成！月绒羊正在等你带它回家。'})[b.status];
- $('startBasket').textContent=b.status==='ready'?'开始整理，发现珍藏':b.status==='playing'?'重新挑战同一篮':'再试一次 · 布局不变';
- $('claimBasket').hidden=b.claimed||!b.wonOnce;
- $('claimBasket').disabled=state.ranch.animals.length>=RANCH_RULES.capacity;
- $('claimBasket').textContent=state.ranch.animals.length>=RANCH_RULES.capacity?'围栏已满 · 腾出位置后领取':'带月绒羊回牧场';
- $('visitMoonSheep').hidden=!b.claimed;
- $('basketPending').textContent=b.wonOnce&&!b.claimed?'领养资格已保存，围栏满也不会丢失。':b.claimed?'月绒羊已领养，重玩不会重复发放。':'不消耗庄园材料、不限重试次数、没有倒计时。';
+ $('basketStatus').textContent=({ready:'每天一篮，免费重试。',playing:'',lost:'托盘满了。换个顺序，或复活继续。',won:b.claimed?'今日奖励已领取。':'挑战成功！'})[b.status];
+ $('startBasket').textContent=b.status==='ready'?'开始挑战':'免费重新挑战';
+ $('claimBasket').hidden=!b.pending.length;
+ $('claimBasket').disabled=(b.pending[0]?.day==='legacy'||(b.pending[0]&&rewardFor(b.pending[0].day).key==='moon'))&&state.ranch.animals.length>=RANCH_RULES.capacity&&!state.ranch.animals.some(a=>a.breed==='moon');
+ $('claimBasket').textContent=$('claimBasket').disabled?'牧场已满 · 奖励保留':'领取奖励';
+ $('visitMoonSheep').hidden=true;
+ $('basketPending').textContent=b.pending.length?'有待领取奖励，跨天仍保留。':b.claimed?'明天换一份新奖励。':'每天北京时间零点更新。';
+ $('reviveBasket').hidden=b.status!=='lost';
+ $('reviveBasket').disabled=b.revives>=2;
+ $('reviveBasket').textContent=b.revives>=2?'本局复活已用完':'复活 · 模拟广告';
+ if($('basketAvailable').dataset.day!==String(b.day)){$('basketAvailable').replaceChildren();$('basketAvailable').dataset.day=b.day;}
  const slots=Array.from({length:7},(_,i)=>{const el=document.createElement('span');el.className='tray-slot';const item=basketItemById.get(b.tray[i]);el.setAttribute('aria-label',item?BASKET_TYPES[item.type].name:'空槽');if(item){el.title=BASKET_TYPES[item.type].name;const src=basketView?.icons?.[item.type];if(src){const img=document.createElement('img');img.src=src;img.alt=BASKET_TYPES[item.type].name;el.append(img);}else el.textContent=BASKET_TYPES[item.type].name;el.style.borderColor=BASKET_TYPES[item.type].color;}return el;});$('basketTray').replaceChildren(...slots);
  const available=b.status==='playing'?availableItems(b):[];
  const ids=new Set(available.map(item=>typeof item==='string'?item:item.id));
@@ -214,9 +219,13 @@ function renderBasket(){
  for(const itemValue of available){const item=typeof itemValue==='string'?basketItemById.get(itemValue):itemValue;if(document.querySelector(`[data-basket-item="${item.id}"]`))continue;const button=document.createElement('button');button.dataset.basketItem=item.id;button.textContent=`${BASKET_TYPES[item.type].name} · ${item.stack+1}号位置`;button.addEventListener('click',()=>takeBasketItem(item.id));$('basketAvailable').append(button);}
  basketView?.setState(b);renderHud();
 }
-function takeBasketItem(itemId){try{const before=state.basket;state.basket=pickBasket(before,{itemId});persist();renderBasket();if(state.basket.status==='won')notice(state.basket.claimed?'又完成了一篮整理！':'挑战成功，已获得月绒羊领养资格！');else if(state.basket.status==='lost')notice('托盘满了，可以免费重试同样的布局。');else if(state.basket.tray.length<before.tray.length)notice('凑齐三个同类，已打包整理。');}catch(e){notice('这件物品暂时不能拿取，请先移开上面的物件。');}}
-$('startBasket').addEventListener('click',()=>{state.basket=startBasket(state.basket);persist();renderBasket();notice('开始整理：点击上层物件，三个相同物件自动消除。');});
-$('claimBasket').addEventListener('click',()=>{try{const result=claimBasketReward(state.basket,state.ranch,{now:Date.now()});state.basket=result.basket;state.ranch=result.ranch;persist();render();updateWorld();setMode('ranch');notice('月绒羊已来到牧场！自然成长8小时，成年后每4小时可梳理2份月光绒。');}catch(e){notice(e.code==='RANCH_FULL'?'围栏已满，领养资格会保留，腾出位置后再来。':'暂时不能领取，请确认已通关且尚未领取。');}});
+function takeBasketItem(itemId){try{const before=state.basket;state.basket=pickBasket(before,{itemId});persist();renderBasket();if(state.basket.status==='won')notice(state.basket.claimed?'挑战完成，今日奖励已领取。':'挑战成功，领取今日奖励！');else if(state.basket.status==='lost')notice('托盘满了，可以免费重试同样的布局。');else if(state.basket.tray.length<before.tray.length)notice('凑齐三个同类，已打包整理。');}catch(e){notice('这件物品暂时不能拿取，请先移开上面的物件。');}}
+$('startBasket').addEventListener('click',()=>{state.basket=startBasket(state.basket);persist();renderBasket();closeSheet();});
+$('claimBasket').addEventListener('click',()=>{try{const result=claimBasketReward(state.basket,state.ranch,{now:Date.now(),atelier:state.atelier});state.basket=result.basket;state.ranch=result.ranch;state.atelier=result.atelier;persist();render();updateWorld();notice('已领取：'+result.reward);}catch(e){notice(e.code==='RANCH_FULL'?'牧场已满，奖励会保留。':'暂时不能领取奖励。');}});
+let adRequest=null;
+$('reviveBasket').addEventListener('click',()=>{adRequest={day:state.basket.day,attempts:state.basket.attempts,moves:state.basket.moves,revives:state.basket.revives};$('adDialog').showModal();});
+$('adComplete').addEventListener('click',()=>{const request=adRequest;adRequest=null;$('adDialog').close();try{const b=state.basket;if(!request||Object.keys(request).some(k=>request[k]!==b[k]))throw Error('STALE_AD');state.basket=reviveBasket(b,{completed:true});persist();renderBasket();closeSheet();notice('已回退最后三步，继续挑战。');}catch{notice('本次复活未生效，请重试。');}});
+$('adDialog').addEventListener('close',()=>{adRequest=null;});
 $('visitMoonSheep').addEventListener('click',()=>setMode('ranch'));
 $('basketLeft').addEventListener('click',()=>basketView?.rotate(-1));$('basketRight').addEventListener('click',()=>basketView?.rotate(1));
 

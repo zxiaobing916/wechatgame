@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createBasket,startBasket,pickBasket,availableItems,dailyBoard,validateBasket,advanceDay,dayAt,rewardFor,reviveBasket,claimBasketReward,migrateBasket} from '../src/domain/daily-basket.mjs';
+import {createAtelier} from '../src/domain/atelier.mjs';
+import {createRanchState,buyBreeder} from '../src/domain/ranch.mjs';
+const now=1800000000000,DAY=86400000;
+const win=(s=startBasket(createBasket(now)))=>dailyBoard(s.day).solution.reduce((s,itemId)=>pickBasket(s,{itemId}),s);
+function lose(s=startBasket(createBasket(now))){while(s.status==='playing'){const counts={};for(const id of s.tray){const type=dailyBoard(s.day).items.find(i=>i.id===id).type;counts[type]=(counts[type]||0)+1;}const choices=availableItems(s).sort((a,b)=>(counts[a.type]||0)-(counts[b.type]||0));s=pickBasket(s,{itemId:choices[0].id});}return s;}
+test('30 daily hard boards each contain 108 objects and a legal ad-free solution',()=>{
+ const signatures=new Set();
+ for(let day=0;day<30;day++){
+  const s=startBasket(createBasket(now+day*DAY)),board=dailyBoard(s.day);
+  assert.equal(board.items.length,108);assert.equal(new Set(board.items.map(i=>i.stack)).size,12);
+  for(let i=0;i<12;i++)assert.equal(board.items.filter(x=>x.stack===i).length,9);
+  const result=win(s);assert.equal(result.status,'won');assert.equal(result.revives,0);validateBasket(result);
+  signatures.add(JSON.stringify(board.items));
+ }
+ assert.equal(signatures.size,30);
+});
+test('bad choices lose; retry keeps today layout, ad cancellation does not revive, revive rewinds three moves once',()=>{
+ const lost=lose();assert.equal(lost.status,'lost');
+ const json=JSON.stringify(lost);assert.throws(()=>reviveBasket(lost,{completed:false}),/AD_NOT_COMPLETED/);assert.equal(JSON.stringify(lost),json);
+ const back=reviveBasket(JSON.parse(json),{completed:true});
+ assert.equal(back.status,'playing');assert.equal(back.moves,lost.moves-3);assert.equal(back.revives,1);assert.equal(back.attempts,lost.attempts);
+ validateBasket(back);assert.throws(()=>reviveBasket(back,{completed:true}),/NOT_LOST/);
+ const secondLost=lose(back),second=reviveBasket(secondLost,{completed:true}),thirdLost=lose(second);
+ assert.equal(second.revives,2);assert.throws(()=>reviveBasket(thirdLost,{completed:true}),/REVIVE_LIMIT/);
+ const retry=startBasket(thirdLost);assert.deepEqual(retry.remaining,createBasket(now).remaining);assert.equal(retry.revives,0);assert.equal(retry.attempts,lost.attempts+1);
+});
+test('China midnight changes board/reward; earned reward survives rollover and grants only once',()=>{
+ const s=win(),ranch=createRanchState(),atelier=createAtelier(now);
+ const boundary=(s.day+1)*DAY-8*3600000;
+ assert.equal(advanceDay(s,boundary-1),s);
+ const next=advanceDay(s,boundary);assert.equal(next.day,s.day+1);assert.equal(next.status,'ready');assert.equal(next.pending.length,1);
+ assert.notDeepEqual(rewardFor(next.day),rewardFor(s.day));
+ const got=claimBasketReward(next,ranch,{now:boundary,atelier});const reward=rewardFor(s.day);
+ assert.equal(got.atelier.materials[reward.key],atelier.materials[reward.key]+reward.amount);
+ assert.equal(got.basket.pending.length,0);assert.throws(()=>claimBasketReward(got.basket,ranch,{now,atelier:got.atelier}),/REWARD_LOCKED/);
+ assert.equal(advanceDay(next,now),next);
+ const afterWin=win(startBasket(next));assert.equal(afterWin.pending.length,2);
+});
+test('repeat victory has no duplicate reward and legacy moon entitlement stays claimable',()=>{
+ const victory=win();const repeat=win(startBasket(victory));assert.equal(repeat.pending.length,1);assert.equal(repeat.wins,2);
+ const legacy={version:1,remaining:[],tray:[],status:'won',attempts:1,moves:36,wonOnce:true,claimed:false,wins:1};
+ const migrated=migrateBasket(legacy,now);assert.deepEqual(migrated.pending,[{day:'legacy'}]);
+ const result=claimBasketReward(migrated,createRanchState(),{now,atelier:createAtelier(now)});assert.equal(result.ranch.animals[0].breed,'moon');
+ assert.equal(migrateBasket(JSON.parse(JSON.stringify(result.basket)),now).pending.length,0);
+ assert.equal(dayAt(now),result.basket.day);
+});
+test('invalid state cannot revive, claim or select hidden pieces',()=>{
+ const s=startBasket(createBasket(now)),hidden=dailyBoard(s.day).items.find(i=>i.layer===0);
+ assert.throws(()=>pickBasket(s,{itemId:hidden.id}),/ITEM_BLOCKED/);
+ assert.throws(()=>validateBasket({...s,remaining:[],tray:[],status:'won'}),/INVALID_BASKET/);
+ assert.throws(()=>validateBasket({...s,pending:[{day:s.day+1}]}),/INVALID_REWARDS/);
+ assert.throws(()=>claimBasketReward(s,createRanchState(),{now,atelier:createAtelier(now)}),/REWARD_LOCKED/);
+});
+test('moon reward day retains a full-ranch entitlement and duplicate partner gives material',()=>{
+ let time=now;while(rewardFor(dayAt(time)).key!=='moon')time+=DAY;
+ const s=win(startBasket(createBasket(time))),atelier=createAtelier(time);
+ let full=createRanchState();for(let i=0;i<6;i++)full=buyBreeder(full,{speciesId:'sheep',level:1,coins:60,random:()=>.9,now:time}).ranch;
+ const before=JSON.stringify(s);assert.throws(()=>claimBasketReward(s,full,{now:time,atelier}),/RANCH_FULL/);assert.equal(JSON.stringify(s),before);
+ const first=claimBasketReward(s,createRanchState(),{now:time,atelier});
+ assert.equal(first.ranch.animals[0].breed,'moon');
+ const repeatDay=win(startBasket(createBasket(time+5*DAY)));
+ const second=claimBasketReward(repeatDay,first.ranch,{now:time+5*DAY,atelier});
+ assert.equal(second.ranch.animals.length,1);
+ assert.equal(second.atelier.materials.moonDown,atelier.materials.moonDown+2);
+});

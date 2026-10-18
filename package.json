@@ -1,6 +1,6 @@
 {
   "name": "qimeng-manor-prototype",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "type": "module",
   "description": "Original fantasy farm and avatar customization prototype; not a production WeChat build",
