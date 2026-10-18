@@ -123,7 +123,7 @@ export function createBasketView({canvas,onPick=()=>{},onPrize=()=>{}}={}) {
   });
   }
   rebuild(BASKET_ITEMS);
-  let state=null,available=new Set(),active=false,disposed=false,angle=0,drag=null,frame=0,rockRemaining=0,lastFrame=0;let tiltX=0,tiltZ=0;const pointers=new Set();
+  let state=null,available=new Set(),active=false,disposed=false,angle=0,drag=null,frame=0,rockRemaining=0,lastFrame=0;let tiltX=0,tiltZ=0,lastToss=-Infinity,tossCount=0;const pointers=new Set();
   function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);const aspect=r.width/r.height;const half=aspect<1?3.85/aspect:3.85;camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
   function positionCamera(){camera.position.set(Math.sin(angle)*3.4,16-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,-1.2-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
   function settle(dt,wave){
@@ -132,8 +132,8 @@ export function createBasketView({canvas,onPick=()=>{},onPrize=()=>{}}={}) {
     for(const r of [...records.values()].reverse()){
       if(!r.root.visible)continue;
       const phase=Number(r.item.id.split('-')[1])*2.399,shift=(wave+tiltZ)*Math.sin(phase)*.35;
-      r.root.position.x=THREE.MathUtils.clamp(r.item.x+shift,-1.98,1.98);
-      r.root.position.z=THREE.MathUtils.clamp(r.item.z+(wave+tiltX)*Math.cos(phase)*.35,-3.04,3.04);
+      r.root.position.x=THREE.MathUtils.clamp(r.item.x+(r.nudgeX||0)+shift,-1.98,1.98);
+      r.root.position.z=THREE.MathUtils.clamp(r.item.z+(r.nudgeZ||0)+(wave+tiltX)*Math.cos(phase)*.35,-3.04,3.04);
       let support=-5.38;
       for(const other of placed)if(Math.abs(r.root.position.x-other.root.position.x)<1.78&&Math.abs(r.root.position.z-other.root.position.z)<1.13)support=Math.max(support,other.root.position.y+1.08);
       // Authored finite packing bounds are invariant during rocking and settling.
@@ -143,12 +143,34 @@ export function createBasketView({canvas,onPick=()=>{},onPrize=()=>{}}={}) {
       placed.push(r);
     }
   }
+  function toss(strength=1){
+    const now=performance.now();if(!active||state?.status!=='playing'||!state.remaining.length||now-lastToss<1400)return false;
+    lastToss=now;tossCount++;rockRemaining=1200;
+    const visible=[...records.values()].filter(r=>r.root.visible);
+    const surface=visible.filter(r=>!visible.some(o=>o!==r&&o.root.position.y>r.root.position.y+.35&&Math.hypot(o.root.position.x-r.root.position.x,o.root.position.z-r.root.position.z)<1.3));
+    surface.sort((a,b)=>Math.sin(Number(a.item.id.slice(6))+tossCount)-Math.sin(Number(b.item.id.slice(6))+tossCount));
+    for(const r of surface.slice(0,5))r.toss={elapsed:0,strength:Math.max(.45,Math.min(1,strength)),phase:Number(r.item.id.slice(6))*2.399,offset:new THREE.Vector3()};
+    return true;
+  }
+  function clearTossOffsets(){for(const r of records.values())if(r.toss)r.root.position.sub(r.toss.offset);}
+  function animateToss(dt){
+    for(const r of records.values())if(r.toss){const t=r.toss;t.elapsed+=dt;const p=Math.min(1,t.elapsed/.8),arc=Math.sin(Math.PI*p),amount=t.strength;
+      t.offset.set(Math.sin(t.phase)*.09*arc*amount,.20*arc*amount,Math.cos(t.phase)*.07*arc*amount);r.root.position.add(t.offset);
+      r.shape.rotation.x=r.item.pitch+arc*.18*amount;r.shape.rotation.z=r.item.roll+Math.sin(t.phase)*arc*.20*amount;
+      if(p===1){
+        const nx=THREE.MathUtils.clamp((r.nudgeX||0)+Math.sin(t.phase+tossCount)*.035,-.08,.08),nz=THREE.MathUtils.clamp((r.nudgeZ||0)+Math.cos(t.phase+tossCount)*.035,-.06,.06);
+        const clear=[...records.values()].every(o=>o===r||!o.root.visible||Math.abs(o.root.position.y-r.root.position.y)>.4||Math.hypot(o.root.position.x-(r.item.x+nx),o.root.position.z-(r.item.z+nz))>1.1);
+        if(clear){r.nudgeX=nx;r.nudgeZ=nz;}
+        r.shape.rotation.x=r.item.pitch;r.shape.rotation.z=r.item.roll;r.toss=null;
+      }
+    }
+  }
   function render(){if(!active||disposed)return;
     const time=performance.now(),dt=Math.min(100,lastFrame?time-lastFrame:16);lastFrame=time;
     rockRemaining=Math.max(0,rockRemaining-dt);
     const wave=rockRemaining>0?Math.sin((1200-rockRemaining)*.009)*.075*Math.min(1,rockRemaining/300):0;
     if(rockRemaining>0){contents.rotation.x=tiltX+wave;contents.rotation.z=tiltZ+wave*.65;}else{contents.rotation.x+=(tiltX-contents.rotation.x)*.25;contents.rotation.z+=(tiltZ-contents.rotation.z)*.25;}
-    settle(dt/1000,wave);positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
+    clearTossOffsets();settle(dt/1000,wave);animateToss(dt/1000);positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
   function setState(value){const key=value?.version===2?'daily:'+value.day+':'+(value.layout??1):'legacy';if(boardKey!==key){rebuild(value?.version===2?itemsFor(value):BASKET_ITEMS,value?.version===2);boardKey=key;}state=value;lamb.visible=value?.version!==2||rewardFor(value.day).key==='moon';gift.visible=!lamb.visible;const ids=value?.remainingIDs??value?.remaining??entries.map(v=>v.id);const remaining=new Set(ids);updatePrize(remaining.size,value?.status);available=new Set(value?(value.version===2?dailyAvailable(value):legacyAvailable(value)).map(v=>typeof v==='object'?v.id:v):[]);for(const [id,r]of records){r.root.visible=remaining.has(id);r.ring.visible=!r.scattered&&available.has(id);const size=r.item.size===2.15?1:r.scattered?r.item.size:available.has(id)?1:.94;r.shape.scale.set(size,size*(!r.scattered&&r.daily?.5:1),size);}if(active)renderer.render(scene,camera);}
   function setActive(value){if(disposed)return;active=Boolean(value);cancelAnimationFrame(frame);if(active){resize();render();}}
   function rotate(direction){angle=THREE.MathUtils.clamp(angle+Math.sign(direction)*.06,-.12,.12);positionCamera();if(active)renderer.render(scene,camera);}
@@ -158,5 +180,5 @@ export function createBasketView({canvas,onPick=()=>{},onPrize=()=>{}}={}) {
   function cancel(){drag=null;pointers.clear();tiltX=tiltZ=0;}
   canvas.style.touchAction='none';canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',cancel);
   const observer=new ResizeObserver(()=>{if(active)resize();});observer.observe(canvas);positionCamera();
-  return {icons:Object.freeze(icons),setState,setActive,rotate,rock(){if(active&&!prizeAwake)rockRemaining=1200;},get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();const prizePoint=keepsake.getWorldPosition(new THREE.Vector3()).project(camera);return {prizePoint:{x:rect.left+(prizePoint.x+1)*rect.width/2,y:rect.top+(1-prizePoint.y)*rect.height/2},active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:keepsake.visible,prizeAwake,types:Object.keys(BASKET_TYPES),positions:[...records.values()].filter(r=>r.root.visible).map(r=>({id:r.item.id,x:r.root.position.x,y:r.root.position.y,z:r.root.position.z})),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
+  return {icons:Object.freeze(icons),setState,setActive,rotate,rock:toss,get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();const prizePoint=keepsake.getWorldPosition(new THREE.Vector3()).project(camera);return {tossCount,tossing:[...records.values()].filter(r=>r.toss).map(r=>r.item.id),prizePoint:{x:rect.left+(prizePoint.x+1)*rect.width/2,y:rect.top+(1-prizePoint.y)*rect.height/2},active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:keepsake.visible,prizeAwake,types:Object.keys(BASKET_TYPES),positions:[...records.values()].filter(r=>r.root.visible).map(r=>({id:r.item.id,x:r.root.position.x,y:r.root.position.y,z:r.root.position.z})),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
 }

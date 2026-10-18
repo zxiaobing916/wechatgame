@@ -1,3 +1,4 @@
+import {createMotionInput} from './shake-input.mjs';
 import {LEVEL_XP,LAND_COSTS,newPlots,migrateProgress,validateProgress,awardHarvestXp,unlockPlot} from '/domain/progression.mjs';
 import {planBulk,runBulk} from '/domain/bulk.mjs';
 import {BASKET_TYPES,createBasket,validateBasket,startBasket,availableItems,pickBasket,claimBasketReward,migrateBasket,advanceDay,itemsFor,rewardFor,reviveBasket,expireBasket,collectBasketPrize} from '/domain/daily-basket.mjs';
@@ -228,7 +229,11 @@ $('reviveBasket').addEventListener('click',()=>{adRequest={day:state.basket.day,
 $('adComplete').addEventListener('click',()=>{const request=adRequest;adRequest=null;$('adDialog').close();try{const b=state.basket;if(!request||Object.keys(request).some(k=>request[k]!==b[k]))throw Error('STALE_AD');state.basket=reviveBasket(b,{completed:true});persist();renderBasket();closeSheet();notice('复活成功，增加两分钟，继续挑战。');}catch{notice('本次复活未生效，请重试。');}});
 $('adDialog').addEventListener('close',()=>{adRequest=null;});
 $('visitMoonSheep').addEventListener('click',()=>setMode('ranch'));
+const motionInput=createMotionInput({onShake:strength=>basketView?.rock(strength),enabled:()=>mode==='basket'&&state.basket.status==='playing'&&!document.body.dataset.editing});
+$('rockBasket').textContent='轻颠';
 $('rockBasket').addEventListener('click',()=>basketView?.rock());
+const motionButton=document.createElement('button');motionButton.id='motionBasket';motionButton.textContent='开启摇一摇';$('gameHud').append(motionButton);
+motionButton.addEventListener('click',async()=>{if(motionInput.running){motionInput.stop();motionButton.textContent='开启摇一摇';return;}const ok=await motionInput.start();motionButton.textContent=ok?'关闭摇一摇':'摇一摇不可用';if(!ok)notice('设备未支持或未授权运动传感器，仍可点“轻颠”。');});
 $('basketLeft').addEventListener('click',()=>basketView?.rotate(-1));$('basketRight').addEventListener('click',()=>basketView?.rotate(1));
 
 function renderAtelier(){
