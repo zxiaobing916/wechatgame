@@ -5,12 +5,12 @@ with sync_playwright() as p:
  b=p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
  page=b.new_page(viewport={'width':390,'height':844},has_touch=True)
  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
- page.add_init_script("Date.now=()=>1800000000000")
+ page.add_init_script("window.testNow=1800000000000;Date.now=()=>window.testNow")
  page.goto('http://127.0.0.1:4174/')
  page.wait_for_function('window.__qimeng3d?.basketInfo',timeout=60000)
  page.evaluate("async()=>{window.daily=await import('/domain/daily-basket.mjs')}")
  page.locator('#basketTab').tap();page.locator('#mainAction').tap()
- assert page.evaluate('window.__qimeng3d.state.basket.layout')==2
+ assert page.evaluate('window.__qimeng3d.state.basket.layout')==3
  assert page.evaluate('window.__qimeng3d.basketInfo.visibleCount')==108
  page.screenshot(path=str(ROOT/'web/assets/scattered-basket.png'))
  before=page.evaluate('window.__qimeng3d.state.basket')
@@ -39,6 +39,13 @@ with sync_playwright() as p:
  for i in range(0,108,12):
   page.evaluate('ids=>{for(const id of ids)document.querySelector(\'[data-basket-item="\'+id+\'"]\').click()}',path[i:i+12])
  assert page.evaluate('window.__qimeng3d.state.basket.status')=='won'
+ page.evaluate("document.querySelector('#startBasket').click()")
+ assert page.locator('#basketTimer').inner_text()=='10:00'
+ page.evaluate('window.testNow+=600000')
+ page.wait_for_function("window.__qimeng3d.state.basket.lossReason==='time'")
+ page.locator('#mainAction').tap();page.locator('#reviveBasket').tap();page.locator('#adComplete').tap()
+ assert page.evaluate('window.__qimeng3d.state.basket.status')=='playing'
+ assert page.locator('#basketTimer').inner_text()=='02:00'
  assert not errors,errors
  print('PASS irregular heap, bounded rocking and drag without state changes, real exposed-object picking, full legal solution')
  b.close()

@@ -61,7 +61,7 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   function model(type){
     const p=new THREE.Group();
     if(type==='flower'){
-      for(let i=0;i<5;i++){const a=i*Math.PI*2/5;part(p,ball,M.pink,Math.sin(a)*.24,.16,Math.cos(a)*.24,.22,.10,.22);}
+      for(let i=0;i<5;i++){const a=i*Math.PI*2/5;part(p,ball,M.pink,Math.sin(a)*.24,.16,Math.cos(a)*.24,.22,.17,.22);}
       part(p,ball,M.yellow,0,.25,0,.17,.10,.17);
     }else if(type==='pear'){
       part(p,ball,M.yellow,0,.22,0,.30,.30,.29);part(p,ball,M.yellow,0,.45,0,.18,.23,.18);
@@ -72,7 +72,7 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
       part(p,cyl,M.purple,0,.25,0,.285,.31,.285);
       for(const y of [.13,.21,.29,.37]){const line=part(p,torus,M.white,0,y,0,.286,.286,.286);line.rotation.x=Math.PI/2;}
     }else if(type==='shell'){
-      for(let i=0;i<5;i++){const a=(i-2)*.31;const rib=part(p,ball,M.cream,Math.sin(a)*.22,.12,Math.cos(a)*.15,.09,.13,.35);rib.rotation.y=a;}
+      for(let i=0;i<5;i++){const a=(i-2)*.31;const rib=part(p,ball,M.cream,Math.sin(a)*.22,.12,Math.cos(a)*.15,.09,.19,.35);rib.rotation.y=a;}
       part(p,ball,M.pink,0,.15,-.18,.15,.11,.13);
     }else if(type==='berry'){
       for(const [x,z] of [[-.15,.08],[.15,.08],[0,-.15]])part(p,ball,M.red,x,.19,z,.20,.22,.20);
@@ -90,7 +90,7 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
       part(p,ball,M.wood,0,.075,0,.10,.075,.10);
       const loop=part(p,torus,M.yellow,0,.55,0,.10,.10,.10);
     }else{
-      const leaf=part(p,ball,M.green,0,.14,0,.23,.10,.44);leaf.rotation.y=-.3;
+      const leaf=part(p,ball,M.green,0,.14,0,.23,.17,.44);leaf.rotation.y=-.3;
       const vein=part(p,cube,M.cream,0,.24,0,.025,.025,.63);vein.rotation.y=-.3;
     }
     return p;
@@ -112,22 +112,41 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
     // The open ring is a persistent mobile-readable cue; lower layers have none.
     const ring=part(root,torus,M.white,0,.015,0,.43,.43,.43);ring.rotation.x=Math.PI/2;
     const scattered=Number.isFinite(item.pitch);
-    if(scattered){root.position.set(item.x,item.y,item.z);shape.position.y=-heights[item.type]*.5;shape.scale.setScalar(item.size);root.rotation.set(item.pitch,item.yaw,item.roll);ring.visible=false;}else root.rotation.y=(index%5-2)*.16;
+    if(scattered){root.position.set(item.x,item.y,item.z);shape.position.y=-heights[item.type]*.5*item.size;shape.scale.setScalar(item.size);root.rotation.set(item.pitch,item.yaw,item.roll);ring.visible=false;}else root.rotation.y=(index%5-2)*.16;
     ring.name='selection-ring';
     root.traverse(o=>{if(o.isMesh)o.userData.itemId=item.id;});contents.add(root);
-    records.set(item.id,{item,root,shape,ring,daily,scattered});
+    records.set(item.id,{item,root,shape,ring,daily,scattered,targetY:item.y,velocity:0});
   });
   }
   rebuild(BASKET_ITEMS);
   let state=null,available=new Set(),active=false,disposed=false,angle=0,drag=null,frame=0,rockRemaining=0,lastFrame=0;let tiltX=0,tiltZ=0;const pointers=new Set();
   function resize(){const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;renderer.setSize(r.width,r.height,false);const aspect=r.width/r.height;const half=aspect<1?3.85/aspect:3.85;camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
-  function positionCamera(){camera.position.set(Math.sin(angle)*3.4,11-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,.9-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
+  function positionCamera(){camera.position.set(Math.sin(angle)*3.4,45-(camera.zoom-1)/.65*4,Math.cos(angle)*3.4);camera.lookAt(0,5-(camera.zoom-1),Math.max(0,(camera.zoom-1)/.65)*.63);camera.updateMatrixWorld();}
+  function settle(dt,wave){
+    if(state?.layout!==3)return;
+    const placed=[];
+    for(const r of [...records.values()].reverse()){
+      if(!r.root.visible)continue;
+      const radius=r.item.radius;
+      const phase=Number(r.item.id.split('-')[1])*2.399;
+      const shift=(wave+tiltZ)*Math.sin(phase)*.65;
+      r.root.position.x=THREE.MathUtils.clamp(r.item.x+shift,-2.78+radius,2.78-radius);
+      r.root.position.z=THREE.MathUtils.clamp(r.item.z+(wave+tiltX)*Math.cos(phase)*.65,-3.48+radius,3.48-radius);
+      let support=radius+(Math.hypot(r.root.position.x,r.root.position.z-.63)<.95?.54:0);
+      for(const other of placed){const d=Math.hypot(r.root.position.x-other.root.position.x,r.root.position.z-other.root.position.z),sum=radius+other.item.radius;if(d<sum)support=Math.max(support,other.root.position.y+Math.sqrt(sum*sum-d*d)+.008);}
+      r.targetY=support;r.velocity-=9.8*dt;
+      r.root.position.y=Math.max(support,r.root.position.y+r.velocity*dt);
+      if(r.root.position.y<=support+.001)r.velocity=0;
+      r.root.rotation.z=r.item.roll+shift*.3;
+      placed.push(r);
+    }
+  }
   function render(){if(!active||disposed)return;
     const time=performance.now(),dt=Math.min(100,lastFrame?time-lastFrame:16);lastFrame=time;
     rockRemaining=Math.max(0,rockRemaining-dt);
     const wave=rockRemaining>0?Math.sin((1200-rockRemaining)*.009)*.075*Math.min(1,rockRemaining/300):0;
     if(rockRemaining>0){contents.rotation.x=tiltX+wave;contents.rotation.z=tiltZ+wave*.65;}else{contents.rotation.x+=(tiltX-contents.rotation.x)*.25;contents.rotation.z+=(tiltZ-contents.rotation.z)*.25;}
-    positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
+    settle(dt/1000,wave);positionCamera();const targetZoom=prizeAwake?1.65:1;camera.zoom+=(targetZoom-camera.zoom)*.08;camera.updateProjectionMatrix();const targetScale=prizeAwake?1.8:.72;keepsake.scale.setScalar(keepsake.scale.x+(targetScale-keepsake.scale.x)*.08);if(prizeAwake){const t=performance.now()*.001;head.rotation.z=Math.sin(t*1.5)*.035;lamb.position.y=Math.sin(t*2)*.008;}else{head.rotation.z=0;lamb.position.y=0;}renderer.render(scene,camera);frame=requestAnimationFrame(render);}
   function setState(value){const key=value?.version===2?'daily:'+value.day+':'+(value.layout??1):'legacy';if(boardKey!==key){rebuild(value?.version===2?itemsFor(value):BASKET_ITEMS,value?.version===2);boardKey=key;}state=value;lamb.visible=value?.version!==2||rewardFor(value.day).key==='moon';gift.visible=!lamb.visible;const ids=value?.remainingIDs??value?.remaining??entries.map(v=>v.id);const remaining=new Set(ids);updatePrize(remaining.size,value?.status);available=new Set(value?(value.version===2?dailyAvailable(value):legacyAvailable(value)).map(v=>typeof v==='object'?v.id:v):[]);for(const [id,r]of records){r.root.visible=remaining.has(id);r.ring.visible=!r.scattered&&available.has(id);const size=r.scattered?r.item.size:available.has(id)?1:.94;r.shape.scale.set(size,size*(!r.scattered&&r.daily?.5:1),size);}if(active)renderer.render(scene,camera);}
   function setActive(value){if(disposed)return;active=Boolean(value);cancelAnimationFrame(frame);if(active){resize();render();}}
   function rotate(direction){angle=THREE.MathUtils.clamp(angle+Math.sign(direction)*.06,-.12,.12);positionCamera();if(active)renderer.render(scene,camera);}
@@ -137,5 +156,5 @@ export function createBasketView({canvas,onPick=()=>{}}={}) {
   function cancel(){drag=null;pointers.clear();tiltX=tiltZ=0;}
   canvas.style.touchAction='none';canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',cancel);
   const observer=new ResizeObserver(()=>{if(active)resize();});observer.observe(canvas);positionCamera();
-  return {icons:Object.freeze(icons),setState,setActive,rotate,rock(){if(active&&!prizeAwake)rockRemaining=1200;},get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();return {active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:revealProgress>.2,prizeAwake,types:Object.keys(BASKET_TYPES),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
+  return {icons:Object.freeze(icons),setState,setActive,rotate,rock(){if(active&&!prizeAwake)rockRemaining=1200;},get debug(){scene.updateMatrixWorld(true);const rect=canvas.getBoundingClientRect();return {active,angle,rocking:rockRemaining>0,tilt:[contents.rotation.x,contents.rotation.z],revealProgress,prizeVisible:revealProgress>.2,prizeAwake,types:Object.keys(BASKET_TYPES),positions:[...records.values()].filter(r=>r.root.visible).map(r=>({id:r.item.id,x:r.root.position.x,y:r.root.position.y,z:r.root.position.z})),visibleCount:[...records.values()].filter(r=>r.root.visible).length,selectable:[...records.values()].filter(r=>r.root.visible&&available.has(r.item.id)).map(r=>{const p=r.root.localToWorld(new THREE.Vector3(0,r.scattered?0:.3,0)).project(camera);return{id:r.item.id,type:r.item.type,x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2};})};},dispose(){disposed=true;active=false;cancelAnimationFrame(frame);observer.disconnect();canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',cancel);for(const g of geometries)g.dispose();for(const m of materials)m.dispose();renderer.dispose();}};
 }

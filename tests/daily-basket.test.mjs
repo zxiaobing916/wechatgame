@@ -80,7 +80,34 @@ test('older column save upgrades without losing already earned rewards or granti
  const s=win(),old={...s,layout:1};
  // Won states contain no remaining objects and are valid across both layouts.
  const upgraded=migrateBasket(old,now);
- assert.equal(upgraded.layout,2);assert.equal(upgraded.status,'playing');
+ assert.equal(upgraded.layout,3);assert.equal(upgraded.status,'playing');
  assert.equal(upgraded.wonOnce,true);assert.deepEqual(upgraded.pending,s.pending);
  assert.equal(win(upgraded).pending.length,1);
+});
+
+test('timer expires at ten minutes, survives reload and prevents picking after expiry',async()=>{
+ const {expireBasket}=await import('../src/domain/daily-basket.mjs');
+ const s=startBasket(createBasket(now),now);
+ assert.equal(s.deadline,now+600000);
+ assert.equal(expireBasket(s,now+599999).status,'playing');
+ const lost=expireBasket(JSON.parse(JSON.stringify(s)),now+600000);
+ assert.equal(lost.status,'lost');assert.equal(lost.lossReason,'time');validateBasket(lost);
+ assert.throws(()=>pickBasket(s,{itemId:dailyBoard(s.day).solution[0],now:now+600000}),/BASKET_NOT_PLAYING/);
+ assert.throws(()=>reviveBasket(lost,{completed:false,now:now+600000}),/AD_NOT_COMPLETED/);
+ const back=reviveBasket(lost,{completed:true,now:now+700000});
+ assert.equal(back.deadline,now+820000);assert.deepEqual(back.remaining,s.remaining);assert.equal(back.revives,1);
+ assert.equal(startBasket(lost,now+900000).deadline,now+1500000);
+});
+
+test('ray-exposed lower pieces may be removed, saved and replayed by revival',()=>{
+ let s=startBasket(createBasket(now));
+ const lower=dailyBoard(s.day).items.find(i=>i.blockers.length>0);
+ assert.throws(()=>pickBasket(s,{itemId:lower.id}),/ITEM_BLOCKED/);
+ s=pickBasket(s,{itemId:lower.id,exposed:true});validateBasket(JSON.parse(JSON.stringify(s)));
+ while(s.status==='playing'){
+  const items=dailyBoard(s.day).items,counts={};for(const id of s.tray){const type=items.find(i=>i.id===id).type;counts[type]=(counts[type]||0)+1;}
+  const candidates=items.filter(i=>s.remaining.includes(i.id)).sort((a,b)=>(counts[a.type]||0)-(counts[b.type]||0));
+  s=pickBasket(s,{itemId:candidates[0].id,exposed:true});
+ }
+ const revived=reviveBasket(s,{completed:true});validateBasket(revived);assert.equal(revived.moves,s.moves-3);
 });
