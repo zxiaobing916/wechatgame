@@ -261,7 +261,7 @@ function total(items, config) {
 export function sellOffspring(ranch, { coins }) {
   validateRanchState(ranch); requireCoins(coins);
   const { amount, income } = total(ranch.inventory, species(ranch.speciesId));
-  return Object.freeze({ ranch: freezeState({ ...ranch, inventory: [] }), coins: safeAdd(coins, income), amount });
+  return Object.freeze({ ranch: freezeState({ ...ranch, inventory: [] }), coins: safeAdd(coins, income), amount, income });
 }
 export function sellVisitorOffspring(ranch, { visitorId }) {
   validateRanchState(ranch);

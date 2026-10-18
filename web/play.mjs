@@ -1,3 +1,4 @@
+import {MATERIALS,SKINS,createAtelier,validateAtelier,grantHarvest,groomAnimal,claimTicket,craftSkin,equipSkin,exchangeDown,drawTicket} from '/domain/atelier.mjs';
 import {createNature,advanceNature,mutationValue,mutationName,MUTATIONS} from '/domain/nature.mjs';
 import {applyCare,inspectCare,GROWTH} from '/domain/care.mjs';
 import { createBatch, inspectBatch, stealHarvest, harvestOwn } from '/domain/harvest.mjs';
@@ -14,10 +15,11 @@ const validFace = face => face && typeof face==='object' && !Array.isArray(face)
 const fresh = () => ({version:2,garment:'garden',ranch:createRanchState(),coins:200,level:8,face:defaults(),outfit:'sage',plots:Array.from({length:6},(_,id)=>({id,crop:null,batch:null}))});
 function validState(s){
  if(!s||![1,2].includes(s.version)||s.level!==8||!Number.isSafeInteger(s.coins)||s.coins<0||!validFace(s.face)||!OUTFITS.includes(s.outfit)||!Array.isArray(s.plots)||s.plots.length!==6)return false;
- try{if(s.version===2){if(!GARMENTS.includes(s.garment))return false;validateRanchState(s.ranch);}return s.plots.every((p,i)=>{if(!p||p.id!==i)return false;if(p.crop===null)return p.batch===null;const c=CROPS[p.crop];if(!c||!p.batch||p.batch.productId!==p.crop||p.batch.kind!=='crop'||p.batch.ownerId!=='local-owner'||p.batch.initialYield!==c.yield||p.batch.collected)return false;inspectBatch(p.batch,Date.now());inspectCare(p.batch,Date.now());return true;});}catch{return false;}
+ try{if(s.atelier)validateAtelier(s.atelier);if(s.version===2){if(!GARMENTS.includes(s.garment))return false;validateRanchState(s.ranch);}return s.plots.every((p,i)=>{if(!p||p.id!==i)return false;if(p.crop===null)return p.batch===null;const c=CROPS[p.crop];if(!c||!p.batch||p.batch.productId!==p.crop||p.batch.kind!=='crop'||p.batch.ownerId!=='local-owner'||p.batch.initialYield!==c.yield||p.batch.collected)return false;inspectBatch(p.batch,Date.now());inspectCare(p.batch,Date.now());return true;});}catch{return false;}
 }
 let state=fresh(),initialNotice='欢迎来到你的庄园。',selected=0,world=null,mode='farm';
 try {const raw=localStorage.getItem(KEY);if(raw){const parsed=JSON.parse(raw);if(parsed.version===2){const legacy=parsed.ranch?.version!==5;parsed.ranch=migrateRanchState(parsed.ranch);if(legacy){initialNotice='牧场已升级：保留成长比例与公羊休息时间，改用现实时间成长和间隔照料。';try{if(!localStorage.getItem(KEY+'-before-ranch-v5'))localStorage.setItem(KEY+'-before-ranch-v5',raw);}catch{}}}if(validState(parsed)){state=parsed.version===1?{...parsed,version:2,garment:'garden',ranch:createRanchState()}:parsed;if(parsed.version===1){initialNotice='已保留旧版金币、田地与外观，牧场和衣橱现已开放。';try{if(!localStorage.getItem(KEY+'-before-v2'))localStorage.setItem(KEY+'-before-v2',raw);}catch{/* A backup quota failure must not discard the loaded save. */}}}else initialNotice='旧存档格式无法读取，已开启新的本地体验。';}}catch{initialNotice='浏览器存储不可用，本次体验可能无法保存。';}
+if(!state.atelier)state.atelier=createAtelier(Date.now());
 if(!state.nature)state.nature=createNature(Date.now());
 function notice(t){$('notice').textContent=t;}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch{notice('本地保存失败。请允许浏览器存储，并导出捏脸码留存。');}}
@@ -28,6 +30,7 @@ function render(){
  $('weatherNow').textContent=`${weatherNames[state.nature.type]} · ${duration((state.nature.slot+1)*1800000-Date.now())}后更新`;
  const variants=[...state.plots.filter(p=>p.batch?.mutation).map(p=>`田地${p.id+1}：${mutationName(p.batch.mutation)}`),...state.ranch.animals.filter(a=>a.mutation).map((a)=>`${a.id.replace('sheep-','绵羊')}：${mutationName(a.mutation)}`)];
  $('mutationList').textContent=variants.length?variants.join(' · '):'还没有发现变异，照料与天气可能带来惊喜。';
+ renderAtelier();
  renderRanch();
  renderCare('crop',state.plots[selected].batch);
  state.plots.forEach((p,i)=>{const b=$(`plot-${i}`);const view=p.batch?inspectBatch(p.batch,Date.now()):null;b.classList.toggle('selected',selected===i);b.setAttribute('aria-pressed',String(selected===i));b.querySelector('small').textContent=!p.batch?'空地':view.mature?'可以收获':`${Math.ceil((p.batch.maturesAt-Date.now())/1000)} 秒`;});
@@ -78,8 +81,8 @@ function renderRanch(){
  for(const card of [...animalList.children])if(!ranch.animals.some(a=>a.id===card.dataset.animalId))card.remove();
  ranch.animals.forEach((a,i)=>{
   let card=[...animalList.children].find(c=>c.dataset.animalId===a.id);
-  if(!card){card=document.createElement('div');card.className='animal-card';card.dataset.animalId=a.id;card.append(document.createElement('strong'),document.createElement('p'),document.createElement('progress'),document.createElement('button'),document.createElement('small'));animalList.append(card);}
-  const [title,detail,progress,button,activity]=card.children;
+  if(!card){card=document.createElement('div');card.className='animal-card';card.dataset.animalId=a.id;card.append(document.createElement('strong'),document.createElement('p'),document.createElement('progress'),document.createElement('button'),document.createElement('small'),document.createElement('button'));animalList.append(card);}
+  const [title,detail,progress,button,activity,groom]=card.children;
   const behavior=world?.debug?.sheepBehaviors?.find(r=>r.id===a.id);
   activity.textContent=behavior?`活动：${behavior.queuedFor?(behavior.queuedFor==='water'?'等待饮水空位':'等待进食空位'):({walk:'散步',rest:'趴卧休息',graze:'吃草',drink:'前往水槽或饮水',eat:'前往饲料槽或进食'}[behavior.state]||'休息')}`:'';
   title.textContent=`绵羊 ${i+1} · ${a.sex==='male'?'♂ 公':'♀ 母'}${a.mutation?' · '+mutationName(a.mutation):''}`;
@@ -87,6 +90,7 @@ function renderRanch(){
   const restSeconds=a.sex==='male'?Math.max(0,Math.ceil((a.restUntil-Date.now())/1000)):0;
   detail.textContent=mature?(restSeconds?`已成熟 · 公羊配对休息 ${Math.floor(restSeconds/60)}分${String(restSeconds%60).padStart(2,'0')}秒 · 仍可照料或出售`:'已成熟 · 可出售或留作繁殖'):`成长中 · 距成熟 ${duration(RANCH_RULES.growthMs-a.growthMs)} · 离线继续成长`;
   detail.textContent+=`。${Date.now()>=a.waterReadyAt?'口渴了':`下次饮水 ${duration(a.waterReadyAt-Date.now())}`} · ${Date.now()>=a.feedReadyAt?'肚子饿了':`下次进食 ${duration(a.feedReadyAt-Date.now())}`}`;
+  const groomLeft=Math.max(0,(a.groomReadyAt||0)-Date.now());groom.dataset.groomAnimal=a.id;groom.disabled=!mature||groomLeft>0;groom.textContent=!mature?'成年后可梳理羊毛':groomLeft?`下次梳理 ${duration(groomLeft)}`:'梳理羊毛 · 获得2份';
   progress.max=RANCH_RULES.growthMs;progress.value=a.growthMs;progress.setAttribute('aria-label',`绵羊 ${i+1} 成长进度`);
   button.dataset.sellAnimal=a.id;button.textContent=mature&&!canSellAnimal(ranch,a.id)?'正在交配或孕育，暂不可出售':`出售成羊 · ${mutationValue(RANCH_RULES.adultSale,a.mutation)} 金币`;button.disabled=!canSellAnimal(ranch,a.id);
  });
@@ -138,19 +142,48 @@ $('stealOffspring').addEventListener('click',()=>ranchAction(()=>stealOffspring(
 $('sellVisitorOffspring').addEventListener('click',()=>ranchAction(()=>sellVisitorOffspring(state.ranch,{visitorId:$('ranchVisitor').value}),r=>`访客出售 ${r.amount} 只幼崽，访客获得 ${r.income} 金币。主人金币没有变化。`));
 
 
+
+function renderAtelier(){
+ const a=state.atelier,reset=Math.floor(Date.now()/86400000)>a.daily.day,d=reset?{harvest:0,groom:0,harvestClaimed:false,groomClaimed:false}:a.daily;
+ $('materialStock').textContent=Object.entries(MATERIALS).map(([id,m])=>`${m.name} ${a.materials[id]}`).join(' · ');
+ $('ticketStock').textContent=`奖券 ${a.tickets} 张 · 已连续 ${a.pity} 次未出服装 · 最多再 ${10-a.pity} 次必出服装`;
+ $('drawTicket').disabled=a.tickets<1;
+ $('claimHarvestTicket').textContent=d.harvestClaimed?'收获奖券已领取':`收获3批领1券 · ${Math.min(3,d.harvest)}/3`;
+ $('claimHarvestTicket').disabled=d.harvestClaimed||d.harvest<3;
+ $('claimGroomTicket').textContent=d.groomClaimed?'梳理奖券已领取':`梳理1次领1券 · ${Math.min(1,d.groom)}/1`;
+ $('claimGroomTicket').disabled=d.groomClaimed||d.groom<1;
+ $('exchangeDown').disabled=a.materials.wool<6||a.materials.goldDye<2||a.materials.roseDye<2;
+ for(const [id,skin] of Object.entries(SKINS)){
+  let card=document.querySelector(`[data-skin-card="${id}"]`);
+  if(!card){card=document.createElement('div');card.className='skin-card';card.dataset.skinCard=id;card.append(document.createElement('strong'),document.createElement('p'),document.createElement('button'),document.createElement('button'));$('skinRecipes').append(card);}
+  const [title,cost,craft,equip]=card.children;title.textContent=skin.name+(a.owned.includes(id)?' · 已收藏':'');
+  cost.textContent=Object.entries(skin.cost).map(([key,n])=>`${MATERIALS[key].name} ${a.materials[key]}/${n}`).join(' · ');
+  craft.dataset.craftSkin=id;craft.textContent=a.owned.includes(id)?'已拥有':'制作服装';craft.disabled=a.owned.includes(id)||Object.entries(skin.cost).some(([k,n])=>a.materials[k]<n);
+  equip.dataset.equipSkin=id;equip.textContent=a.equipped===id?'正在穿着':'穿上';equip.disabled=!a.owned.includes(id)||a.equipped===id;
+ }
+ $('drawHistory').textContent=a.history.length?a.history.slice(0,5).map(r=>r.label+(r.pity?'（保底）':'')).join(' · '):'首次开启工坊赠送3张奖券，已自动入账，只发放一次。';
+}
+function atelierAction(fn,message){try{const result=fn();if(result.atelier){state.atelier=result.atelier;if(result.ranch)state.ranch=result.ranch;}else state.atelier=result;notice(typeof message==='function'?message(result):message);persist();render();syncFace();updateWorld();}catch(e){notice(({INSUFFICIENT_MATERIALS:'材料还不够，可以收获植物、梳理成羊或完成奖券任务。',NO_TICKETS:'奖券不足，请先完成任务。',ALREADY_OWNED:'已收藏这件服装。',SKIN_NOT_OWNED:'请先制作或获得这件服装。',GROOM_COOLDOWN:'这只羊还不能再次梳理。',ANIMAL_IMMATURE:'幼羊需要长大后才能梳理。',TASK_INCOMPLETE:'任务还未完成。',ALREADY_CLAIMED:'今天已经领取过此任务奖券。'})[e.code]||`本次操作未完成（${e.code||e.message}）。`);}}
+$('animalList').addEventListener('click',e=>{const button=e.target.closest('[data-groom-animal]');if(!button||button.disabled)return;atelierAction(()=>groomAnimal(state.atelier,state.ranch,{animalId:button.dataset.groomAnimal,now:Date.now()}),'梳理完成，获得2份羊毛。4小时后可再次梳理。');});
+$('claimHarvestTicket').addEventListener('click',()=>atelierAction(()=>claimTicket(state.atelier,{task:'harvest',now:Date.now()}),'收获任务完成，获得1张奖券。'));
+$('claimGroomTicket').addEventListener('click',()=>atelierAction(()=>claimTicket(state.atelier,{task:'groom',now:Date.now()}),'梳理任务完成，获得1张奖券。'));
+$('exchangeDown').addEventListener('click',()=>atelierAction(()=>exchangeDown(state.atelier),'材料兑换完成，获得1份月光绒。'));
+$('drawTicket').addEventListener('click',()=>atelierAction(()=>drawTicket(state.atelier),r=>`本次获得：${r.reward.label}${r.reward.pity?'（第10次保底）':''}。`));
+$('skinRecipes').addEventListener('click',e=>{const craft=e.target.closest('[data-craft-skin]'),equip=e.target.closest('[data-equip-skin]');if(craft&&!craft.disabled)atelierAction(()=>craftSkin(state.atelier,{skinId:craft.dataset.craftSkin}),'服装制作完成，已加入收藏，可以穿上。');if(equip&&!equip.disabled)atelierAction(()=>{const id=equip.dataset.equipSkin;const a=equipSkin(state.atelier,{skinId:id});state.garment=SKINS[id].garment;state.outfit=SKINS[id].outfit;return a;},'服装已穿上，可以回庄园展示。');});
+
 function selectPlot(id){const n=Number(typeof id==='object'?id.id:id);if(Number.isInteger(n)&&n>=0&&n<6){selected=n;render();}}
 for(let i=0;i<6;i++){const b=document.createElement('button');b.id=`plot-${i}`;b.innerHTML=`田地 ${i+1}<small>空地</small>`;b.addEventListener('click',()=>selectPlot(i));$('plots').append(b);}
 $('seed').addEventListener('change',render);
 $('plant').addEventListener('click',()=>{const p=state.plots[selected],crop=$('seed').value,c=CROPS[crop];if(p.batch||state.coins<c.cost||state.level<c.level)return;state.coins-=c.cost;p.crop=crop;p.batch={...createBatch({batchId:`plot-${selected}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,ownerId:'local-owner',productId:crop,kind:'crop',initialYield:c.yield,maturesAt:Date.now()+c.seconds*1000}),startedAt:Date.now(),weatherSlot:state.nature.slot};notice(`已种下${c.name}，扣除 ${c.cost} 金币。`);persist();render();updateWorld();});
-$('harvest').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;try{const result=harvestOwn(p.batch,{actorId:'local-owner',now:Date.now()});const income=mutationValue(result.reward.amount,result.reward.mutation);state.coins+=income;p.crop=null;p.batch=null;notice(`收获并出售 ${result.reward.amount} 份，获得 ${income} 金币。`);persist();render();updateWorld();}catch(e){notice(e.code==='NOT_MATURE'?'作物尚未成熟，暂时不能收获。':`收获失败（${e.code||'UNEXPECTED_ERROR'}），请刷新后重试。`);if(e.code!=='NOT_MATURE')console.error(e);}});
+$('harvest').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;try{const result=harvestOwn(p.batch,{actorId:'local-owner',now:Date.now()});const income=mutationValue(result.reward.amount,result.reward.mutation);state.atelier=grantHarvest(state.atelier,{crop:p.crop,now:Date.now()});state.coins+=income;p.crop=null;p.batch=null;notice(`收获并出售 ${result.reward.amount} 份，获得 ${income} 金币，以及2份染料，已收入衣橱材料仓。`);persist();render();updateWorld();}catch(e){notice(e.code==='NOT_MATURE'?'作物尚未成熟，暂时不能收获。':`收获失败（${e.code||'UNEXPECTED_ERROR'}），请刷新后重试。`);if(e.code!=='NOT_MATURE')console.error(e);}});
 $('mature').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;p.batch={...p.batch,maturesAt:Date.now()};notice('本地演示：当前作物已成熟。正式游戏不提供这个按钮。');persist();render();updateWorld();});
 $('steal').addEventListener('click',()=>{const p=state.plots[selected];if(!p.batch)return;try{const result=stealHarvest(p.batch,{visitorId:$('visitor').value,requestedAmount:4,now:Date.now()});p.batch=result.batch;notice(`模拟访客取走 ${result.reward.amount} 份，你的金币不变。主人仍保留至少 ${Math.ceil(p.batch.initialYield/2)} 份。`);persist();render();updateWorld();}catch(e){notice(({ALREADY_VISITED:'这位访客本批已经摘取过了。',THEFT_CAP_REACHED:'已达到累计一半上限，不能再偷。',NOT_MATURE:'还未成熟，不能摘取。'})[e.code]||'本次摘取未完成。');}});
-function syncFace(){FACE_KEYS.forEach(k=>{$(`range-${k}`).value=state.face[k];$(`number-${k}`).value=state.face[k];});document.querySelectorAll('[data-outfit]').forEach(b=>{b.classList.toggle('active',b.dataset.outfit===state.outfit);b.setAttribute('aria-pressed',String(b.dataset.outfit===state.outfit));});world?.setFace(state.face);world?.setOutfit(state.outfit);world?.setGarment?.(state.garment);document.querySelectorAll('[data-garment]').forEach(b=>{b.classList.toggle('active',b.dataset.garment===state.garment);b.setAttribute('aria-pressed',String(b.dataset.garment===state.garment));});}
+function syncFace(){FACE_KEYS.forEach(k=>{$(`range-${k}`).value=state.face[k];$(`number-${k}`).value=state.face[k];});document.querySelectorAll('[data-outfit]').forEach(b=>{b.classList.toggle('active',b.dataset.outfit===state.outfit);b.setAttribute('aria-pressed',String(b.dataset.outfit===state.outfit));});world?.setFace(state.face);world?.setOutfit(state.outfit);world?.setGarment?.(state.garment);world?.setWardrobeSkin?.(state.atelier.equipped);document.querySelectorAll('[data-garment]').forEach(b=>{b.classList.toggle('active',b.dataset.garment===state.garment);b.setAttribute('aria-pressed',String(b.dataset.garment===state.garment));});}
 FACE_KEYS.forEach((key,i)=>{const row=document.createElement('div');row.className='slider-row';row.innerHTML=`<div class="slider-label"><label for="range-${key}">${LABELS[i]}</label><input id="number-${key}" type="number" min="-50" max="50" step="1" aria-label="${LABELS[i]}数值"></div><input id="range-${key}" type="range" min="-50" max="50" step="1" aria-label="${LABELS[i]}">`;$('sliders').append(row);for(const prefix of ['range','number'])$(`${prefix}-${key}`).addEventListener('input',e=>{if(e.target.value==='')return;const n=Number(e.target.value);if(!Number.isFinite(n))return;state.face[key]=Math.max(-50,Math.min(50,Math.round(n)));document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('active'));syncFace();persist();});});
 const presets={round:{eyeWidth:-10,eyeHeight:28,eyeTilt:0},long:{eyeWidth:32,eyeHeight:-18,eyeTilt:3},lift:{eyeWidth:16,eyeHeight:0,eyeTilt:30}};
 document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{Object.assign(state.face,presets[b.dataset.preset]);document.querySelectorAll('[data-preset]').forEach(x=>x.classList.toggle('active',x===b));syncFace();persist();notice('眼型已应用，可以继续调整每一个参数。');}));
-document.querySelectorAll('[data-outfit]').forEach(b=>b.addEventListener('click',()=>{state.outfit=b.dataset.outfit;syncFace();persist();notice('服装配色已更新。可在衣橱切换服装轮廓。');}));
-document.querySelectorAll('[data-garment]').forEach(b=>b.addEventListener('click',()=>{state.garment=b.dataset.garment;syncFace();persist();notice('服装轮廓已切换，捏脸参数保持不变。');}));
+document.querySelectorAll('[data-outfit]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.outfit=b.dataset.outfit;syncFace();persist();notice('服装配色已更新。可在衣橱切换服装轮廓。');}));
+document.querySelectorAll('[data-garment]').forEach(b=>b.addEventListener('click',()=>{state.atelier={...state.atelier,equipped:null};state.garment=b.dataset.garment;syncFace();persist();notice('服装轮廓已切换，捏脸参数保持不变。');}));
 function encodeFace(){return 'QM3D2:'+btoa(JSON.stringify({v:2,model:'qimeng-procedural-v1',face:state.face,outfit:state.outfit,garment:state.garment}));}
 function decodeFace(code){
  if(typeof code!=='string'||code.length>4096||!/^QM3D[12]:[A-Za-z0-9+/]+={0,2}$/.test(code))throw Error('格式');
@@ -159,7 +192,7 @@ function decodeFace(code){
  return {...data,garment:legacy?'garden':data.garment};
 }
 $('exportFace').addEventListener('click',async()=>{const code=encodeFace();$('faceCode').value=code;try{await navigator.clipboard.writeText(code);notice('分享码已生成并复制，可导入此版本样板。');}catch{$('faceCode').focus();$('faceCode').select();notice('分享码已生成。浏览器未允许自动复制，请手动复制文本。');}});
-$('importFace').addEventListener('click',()=>{try{const d=decodeFace($('faceCode').value.trim());state.face={...d.face};state.outfit=d.outfit;state.garment=d.garment;syncFace();persist();notice('分享码已导入，可以继续微调。');}catch{notice('导入失败：请使用完整的 QM3D2 或 QM3D1 分享码，检查版本和参数。现有外观没有改变。');}});
+$('importFace').addEventListener('click',()=>{try{const d=decodeFace($('faceCode').value.trim());state.face={...d.face};state.outfit=d.outfit;state.garment=d.garment;state.atelier={...state.atelier,equipped:null};syncFace();persist();notice('分享码已导入，可以继续微调。');}catch{notice('导入失败：请使用完整的 QM3D2 或 QM3D1 分享码，检查版本和参数。现有外观没有改变。');}});
 $('resetFace').addEventListener('click',()=>{state.face=defaults();syncFace();persist();notice('五官已恢复默认，服装配色保持不变。');});
 function setMode(next){mode=next;for(const k of ['farm','ranch','face','wardrobe']){$(k+'Panel').hidden=next!==k;$(k+'Tab').classList.toggle('active',next===k);$(k+'Tab').setAttribute('aria-selected',String(next===k));}const titles={farm:'一小片属于你的田园',ranch:'陪伴，在牧场慢慢长大',face:'每一点不同，都属于你',wardrobe:'把喜欢的自己，穿进日常'};$('sceneTitle').textContent=titles[next];$('hint').textContent=next==='farm'?'拖动旋转视角 · 滚轮或双指缩放 · 点击地面行走':'拖动查看造型 · 滚轮或双指缩放';world?.setMode(next);}
 for(const k of ['farm','ranch','face','wardrobe'])$(k+'Tab').addEventListener('click',()=>setMode(k));

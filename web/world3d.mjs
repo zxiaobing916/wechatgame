@@ -52,7 +52,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   function updateWeather(dt){
     weatherTime+=dt;const storm=weatherType==='storm',wet=weatherType==='rain';
     sun.intensity=THREE.MathUtils.lerp(sun.intensity,storm?1.45:wet?1.85:weatherType==='snow'?2.1:2.5,Math.min(1,dt*1.2));
-    weatherSky.set(storm?'#cbd2dc':wet?'#d5e2de':weatherType==='snow'?'#e3eced':'#e5eddf');scene.background.lerp(weatherSky,Math.min(1,dt));scene.fog.color.copy(scene.background);
+    weatherSky.set(storm?'#cbd2dc':wet?'#d5e2de':weatherType==='snow'?'#e3eced':'#e5eddf');scene.background.lerp(weatherSky,Math.min(1,dt));if(scene.fog)scene.fog.color.copy(scene.background);
     if(!rain.visible&&!snow.visible)return;
     for(let i=0;i<weatherCount;i++){
       const x=((i*7.137)%18)-9,z=((i*4.731)%16)-7;
@@ -68,7 +68,7 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   // A visible temporary figure until the actual local glTF is loaded.
   sphere(avatar,0,1.6,0,.16,mat('#ecc4ae'),.85,1.15,.9);
   cylinder(avatar,0,.8,0,.16,.33,1.25,mat('#8fa999'));
-  let garment='garden',ranchCount=0,ranchBabies=0;
+  let garment='garden',wardrobeSkin=null,ranchCount=0,ranchBabies=0;
   let face={},outfit='sage',mode='farm',disposed=false,frame=0,assetLoaded=false;
   const targets=[],cropGroups=[],plotSignatures=[];
   const plotPositions=[];
@@ -413,10 +413,44 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
     skirt(g,[[.14,1.27],[.155,1.32],[.17,1.345],[.13,1.38],[.061,1.415],[.055,1.46]],clothLight,.72);
     hem(g,1.455,.056,.72,trim);
   }
+  // Atelier ornaments are original lightweight meshes, allocated once and owned
+  // by the world. Their materials never recolor shared scenery or animal meshes.
+  const skinRoot=new THREE.Group();skinRoot.name='AtelierOrnaments';garmentRoot.add(skinRoot);
+  const skinGroups=Object.fromEntries(['dawn','moon','forest'].map(id=>{const group=new THREE.Group();group.name=`Atelier_${id}`;skinRoot.add(group);return [id,group];}));
+  const skinM={pink:mat('#e8a7a4',{roughness:.64}),peach:mat('#f7d4af'),pearl:mat('#fff3dc',{roughness:.48}),silver:mat('#b8c9de',{metalness:.3,roughness:.44}),violet:mat('#bbb0d7'),leaf:mat('#6b997e'),lightLeaf:mat('#b2cca2'),gold:mat('#d5b775',{metalness:.35,roughness:.5})};
+  function atelierFlower(parent,x,y,z,r){
+    const g=new THREE.Group();g.position.set(x,y,z);parent.add(g);
+    for(let i=0;i<5;i++){const a=i*Math.PI*2/5,p=sphere(g,Math.sin(a)*r*.57,Math.cos(a)*r*.57,0,r*.48,skinM.pink,.8,1,.32);p.rotation.z=-a;}
+    sphere(g,0,0,r*.12,r*.29,skinM.peach,1,1,.45);return g;
+  }
+  function atelierLeaf(parent,x,y,z,r,angle,material=skinM.leaf){const leaf=sphere(parent,x,y,z,r,material,.5,1.6,.2);leaf.rotation.z=angle;return leaf;}
+  const dawn=skinGroups.dawn;
+  atelierFlower(dawn,-.11,1.07,.13,.064);
+  for(let i=0;i<3;i++)atelierFlower(dawn,.07+i*.064,.43-i*.045,.27,.034);
+  for(const side of [-1,1]){const ribbon=box(dawn,-.11+side*.025,.925,.133,.027,.22,.009,skinM.pearl);ribbon.rotation.z=side*.23;}
+  const moon=skinGroups.moon;
+  const crescent=mesh(new THREE.TorusGeometry(.046,.011,8,28,Math.PI*1.5),skinM.silver,moon,0,1.285,.147);crescent.rotation.z=Math.PI*.25;
+  sphere(moon,.029,1.291,.154,.012,skinM.pearl);
+  for(const side of [-1,1])for(let i=0;i<3;i++)atelierLeaf(moon,side*(.17+i*.021),1.27-i*.026,.085,.034,side*(.65+i*.2),i%2?skinM.violet:skinM.pearl);
+  for(let i=0;i<5;i++){const x=(i-2)*.067;const bead=sphere(moon,x,.34+Math.abs(i-2)*.027,.30-Math.abs(i-2)*.017,.013,skinM.silver);sphere(moon,x,bead.position.y-.045,bead.position.z,.014,skinM.pearl,.7,1.4,.5);}
+  const forest=skinGroups.forest;
+  for(let i=0;i<5;i++)atelierLeaf(forest,-.1+i*.043,1.30-i*.058,.132,.036,i%2?.6:-.6,i%2?skinM.lightLeaf:skinM.leaf);
+  atelierLeaf(forest,-.10,1.025,.142,.055,-.8);atelierLeaf(forest,-.042,1.02,.145,.045,.65,skinM.lightLeaf);
+  sphere(forest,-.074,1.02,.16,.018,skinM.gold);
+  for(const x of [-.10,-.04]){const cord=box(forest,x,.89,.13,.009,.20,.008,skinM.gold);cord.rotation.z=-.12;atelierLeaf(forest,x+.014,.78,.13,.028,-.2,skinM.lightLeaf);}
+  function setWardrobeSkin(id=null){
+    wardrobeSkin=Object.hasOwn(skinGroups,id)?id:null;
+    for(const [key,group] of Object.entries(skinGroups))group.visible=key===wardrobeSkin;
+    // The three silhouettes share torso coordinates but have different skirt depth.
+    dawn.children.slice(1,4).forEach(o=>{o.position.z=garment==='court'?.32:garment==='ranger'?.18:.27;});
+    moon.children.slice(-10).forEach(o=>{o.position.z=garment==='court'?.33:garment==='ranger'?.18:.27;});
+    return wardrobeSkin;
+  }
   function setGarment(id='garden'){
     garment=['garden','court','ranger'].includes(id)?id:'garden';
     avatar.traverse(o=>{if(/^(Outfit|EmbroideryPetal|FlowerCenter|SkirtGoldSeam)/.test(o.name))o.visible=garment==='garden';if(/^Boot[LR]$/.test(o.name))o.visible=garment!=='ranger';});
     for(const [id,g] of Object.entries(garments))g.visible=id===garment;
+    setWardrobeSkin(wardrobeSkin);
   }
   setGarment(garment);
   const target=new THREE.Vector3().copy(avatarRoot.position);const keys=new Set();
@@ -461,5 +495,5 @@ export function createWorld({canvas,onPlotClick=()=>{},onRanchClick=()=>{},onRan
   }
   frame=requestAnimationFrame(tick);
   const ready=new Promise(resolve=>{new GLTFLoader().load(globalThis.QIMENG_MODEL_URL || './assets/models/keeper.glb',gltf=>{if(disposed){gltf.scene.traverse(o=>{o.geometry?.dispose();if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose();});resolve({assetLoaded:false,disposed:true});return;}avatarRoot.remove(avatar);clearGroup(avatar);avatar=gltf.scene;avatarRoot.add(avatar);avatar.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}});art.applyAvatar(avatar);assetLoaded=true;motion=createCharacterMotion(avatar,garments);remember();setFace(face);setOutfit(outfit);setGarment(garment);const result={assetLoaded:true,renderer:'three-webgl',scene};onReady(result);resolve(result);},undefined,error=>{const result={assetLoaded:false,renderer:'three-webgl',warning:'角色模型未能加载，当前显示占位角色。'};onError(new Error(result.warning));onReady(result);resolve(result);});});
-  return {ready,playCare,setWeather,setPlots,setRanch,setFace,setOutfit,setGarment,setMode,moveTo,get debug(){return {assetLoaded,mode,weather:{type:weatherType,particleCount:weatherType==='clear'?0:weatherCount,rainVisible:rain.visible,snowVisible:snow.visible,sunIntensity:sun.intensity},plotMutations:cropGroups.map(g=>g.children.some(c=>c.name==='MutationGem')),careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,mutation:r.mutation,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());snowTexture.dispose();art.dispose();renderer.dispose();}};
+  return {ready,playCare,setWeather,setPlots,setRanch,setFace,setOutfit,setGarment,setWardrobeSkin,setMode,moveTo,get debug(){return {assetLoaded,mode,weather:{type:weatherType,particleCount:weatherType==='clear'?0:weatherCount,rainVisible:rain.visible,snowVisible:snow.visible,sunIntensity:sun.intensity},plotMutations:cropGroups.map(g=>g.children.some(c=>c.name==='MutationGem')),careEffect:{active:careGroup.visible,action:careAction,target:careTarget,plotIndex:carePlot,particleCount:careParticles.length},motion:motion?.debug,garment,wardrobeSkin,wardrobeSkinVisible:Object.values(skinGroups).filter(g=>g.visible).length,garmentVisible:garment==='garden'?1:Object.values(garments).filter(g=>g.visible).length,ranchCount,ranchBabies,troughLevels:{...troughLevels},troughReservations:{...troughReservations},troughQueues:{water:[...troughQueues.water],feed:[...troughQueues.feed]},ranchVisible:sheep.length,sheepBehaviors:[...sheepRecords.values()].map(r=>({id:r.id,mutation:r.mutation,state:r.state,slot:r.slot,queuedFor:r.queuedFor,target:r.target.toArray(),serviceTime:r.serviceTime,position:r.root.position.toArray(),growthMs:r.growthMs,pendingCare:[...r.pendingCare],scale:r.root.scale.x,headBend:r.head.rotation.x,bodyOffset:r.body.position.y})),plotCount:targets.length,position:avatarRoot.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,eyeScale:avatar.getObjectByName('EyeL')?.scale.toArray(),faceWidth:avatar.getObjectByName('Face')?.morphTargetInfluences?.[0]};},dispose(){disposed=true;cancelAnimationFrame(frame);ro.disconnect();controls.dispose();canvas.removeEventListener('pointerdown',pointerDown);canvas.removeEventListener('pointerup',pointerUp);canvas.removeEventListener('pointercancel',blur);canvas.removeEventListener('webglcontextlost',contextLost);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());snowTexture.dispose();art.dispose();renderer.dispose();}};
 }
